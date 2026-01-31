@@ -121,6 +121,14 @@ struct ErrorResponse {
     error: String,
 }
 
+#[derive(Debug, Serialize)]
+struct StatsResponse {
+    total_devices: i64,
+    sandbox_devices: i64,
+    production_devices: i64,
+    total_pushes: i64,
+}
+
 async fn register_device(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
@@ -205,7 +213,7 @@ async fn send_notification(
 
     // Build and send notification
     let apns_clients = state.apns.read().await;
-    let result = apns_clients
+    let apns_id = apns_clients
         .send_notification(&req, environment)
         .await
         .map_err(|e| {
@@ -218,10 +226,67 @@ async fn send_notification(
             )
         })?;
 
+    // Record the push
+    let payload = serde_json::to_string(&req.data).ok();
+    let _ = sqlx::query(
+        r#"
+        INSERT INTO pushes (device_token, apns_id, title, body, payload)
+        VALUES (?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&req.device_token)
+    .bind(&apns_id)
+    .bind(&req.title)
+    .bind(&req.body)
+    .bind(&payload)
+    .execute(&state.db)
+    .await;
+
     Ok(Json(SendResponse {
         success: true,
         message: "Notification sent successfully".to_string(),
-        apns_id: Some(result),
+        apns_id: Some(apns_id),
+    }))
+}
+
+async fn get_stats(
+    State(state): State<AppState>,
+) -> Result<Json<StatsResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let total_devices: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM devices")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    success: false,
+                    error: format!("Database error: {}", e),
+                }),
+            )
+        })?;
+
+    let sandbox_devices: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM devices WHERE environment = 'sandbox'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
+
+    let production_devices: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM devices WHERE environment = 'production'")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or((0,));
+
+    let total_pushes: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pushes")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or((0,));
+
+    Ok(Json(StatsResponse {
+        total_devices: total_devices.0,
+        sandbox_devices: sandbox_devices.0,
+        production_devices: production_devices.0,
+        total_pushes: total_pushes.0,
     }))
 }
 
@@ -237,6 +302,22 @@ async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             app_version TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS pushes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_token TEXT NOT NULL,
+            apns_id TEXT,
+            title TEXT,
+            body TEXT,
+            payload TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         "#,
     )
@@ -272,6 +353,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(|| async { "OK" }))
+        .route("/stats", get(get_stats))
         .route("/register", post(register_device))
         .route("/send", post(send_notification))
         .with_state(state);
