@@ -1,2 +1,14 @@
 target
 .env
+vendor/
+.bundle/
+.envrc
+
+# Fastlane
+fastlane/api_key.json
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/test_output
+build/
+*.ipa
+*.dSYM.zip
