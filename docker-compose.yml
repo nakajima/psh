@@ -7,7 +7,7 @@ services:
       - ./psh/data:/app/data
       - ./psh/apns:/app/apns:ro
     environment:
-      - DATABASE_URL=sqlite:/app/data/data.db
+      - DATABASE_URL=sqlite:/app/data/data.db?mode=rwc
       - APNS_KEY_PATH=/app/apns/AuthKey.p8
       - APNS_KEY_ID=${APNS_KEY_ID}
       - APNS_TEAM_ID=${APNS_TEAM_ID}

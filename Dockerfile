@@ -27,7 +27,7 @@ COPY --from=builder /app/target/release/server /app/server
 
 RUN mkdir -p /app/data
 
-ENV DATABASE_URL=sqlite:/app/data/data.db
+ENV DATABASE_URL=sqlite:/app/data/data.db?mode=rwc
 ENV RUST_LOG=info
 
 EXPOSE 3000
