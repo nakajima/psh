@@ -1,7 +1,0 @@
-target/
-.git/
-.gitignore
-.claude/
-*.md
-*.db
-*.sqlite

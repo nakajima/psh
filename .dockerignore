@@ -1,0 +1,14 @@
+server/target/
+.git/
+.gitignore
+.claude/
+server/.claude/
+*.md
+*.db
+*.sqlite
+*.xcodeproj/
+*.app/
+psh/
+pshTests/
+pshUITests/
+DerivedData/

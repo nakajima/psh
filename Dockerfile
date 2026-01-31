@@ -7,11 +7,11 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY Cargo.toml Cargo.lock ./
+COPY server/Cargo.toml server/Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release && rm -rf src
 
-COPY src ./src
+COPY server/src ./src
 RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim
