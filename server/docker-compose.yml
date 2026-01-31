@@ -1,0 +1,16 @@
+services:
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./apns:/app/apns:ro
+    environment:
+      - DATABASE_URL=sqlite:/app/data/data.db
+      - APNS_KEY_PATH=/app/apns/AuthKey.p8
+      - APNS_KEY_ID=${APNS_KEY_ID}
+      - APNS_TEAM_ID=${APNS_TEAM_ID}
+      - APNS_TOPIC=${APNS_TOPIC:-fm.folder.psh}
+      - RUST_LOG=${RUST_LOG:-info}
+    restart: unless-stopped
