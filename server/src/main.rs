@@ -1,7 +1,7 @@
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -167,21 +167,20 @@ async fn send_notification(
     Json(req): Json<SendRequest>,
 ) -> Result<Json<SendResponse>, (StatusCode, Json<ErrorResponse>)> {
     // Look up device to get environment
-    let device: Option<(String,)> = sqlx::query_as(
-        "SELECT environment FROM devices WHERE device_token = ?",
-    )
-    .bind(&req.device_token)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                success: false,
-                error: format!("Database error: {}", e),
-            }),
-        )
-    })?;
+    let device: Option<(String,)> =
+        sqlx::query_as("SELECT environment FROM devices WHERE device_token = ?")
+            .bind(&req.device_token)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        success: false,
+                        error: format!("Database error: {}", e),
+                    }),
+                )
+            })?;
 
     let environment = match device {
         Some((env_str,)) => Environment::try_from(env_str.as_str()).map_err(|_| {
@@ -251,8 +250,7 @@ async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -273,6 +271,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let app = Router::new()
+        .route("/", get(|| async { "OK" }))
         .route("/register", post(register_device))
         .route("/send", post(send_notification))
         .with_state(state);
@@ -291,8 +290,14 @@ mod tests {
 
     #[test]
     fn test_environment_from_str() {
-        assert_eq!(Environment::try_from("sandbox").unwrap(), Environment::Sandbox);
-        assert_eq!(Environment::try_from("production").unwrap(), Environment::Production);
+        assert_eq!(
+            Environment::try_from("sandbox").unwrap(),
+            Environment::Sandbox
+        );
+        assert_eq!(
+            Environment::try_from("production").unwrap(),
+            Environment::Production
+        );
         assert!(Environment::try_from("invalid").is_err());
     }
 
