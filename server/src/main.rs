@@ -1,6 +1,7 @@
 use axum::{
+    body::Bytes,
     extract::State,
-    http::StatusCode,
+    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -65,8 +66,6 @@ struct RegisterResponse {
 
 #[derive(Debug, Deserialize)]
 struct SendRequest {
-    device_token: String,
-
     // Alert options
     title: Option<String>,
     subtitle: Option<String>,
@@ -111,8 +110,17 @@ enum SoundConfig {
 #[derive(Debug, Serialize)]
 struct SendResponse {
     success: bool,
-    message: String,
+    sent: usize,
+    failed: usize,
+    results: Vec<DeviceSendResult>,
+}
+
+#[derive(Debug, Serialize)]
+struct DeviceSendResult {
+    device_token: String,
+    success: bool,
     apns_id: Option<String>,
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,13 +180,56 @@ async fn register_device(
 
 async fn send_notification(
     State(state): State<AppState>,
-    Json(req): Json<SendRequest>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<Json<SendResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Look up device to get environment
-    let device: Option<(String,)> =
-        sqlx::query_as("SELECT environment FROM devices WHERE device_token = ?")
-            .bind(&req.device_token)
-            .fetch_optional(&state.db)
+    let is_json = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.contains("application/json"))
+        .unwrap_or(false);
+
+    let req: SendRequest = if is_json {
+        serde_json::from_slice(&body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    success: false,
+                    error: format!("Invalid JSON: {}", e),
+                }),
+            )
+        })?
+    } else {
+        let body_text = String::from_utf8_lossy(&body).to_string();
+        SendRequest {
+            title: None,
+            subtitle: None,
+            body: if body_text.is_empty() {
+                None
+            } else {
+                Some(body_text)
+            },
+            launch_image: None,
+            title_loc_key: None,
+            title_loc_args: None,
+            loc_key: None,
+            loc_args: None,
+            badge: None,
+            sound: None,
+            content_available: None,
+            mutable_content: None,
+            category: None,
+            priority: None,
+            collapse_id: None,
+            expiration: None,
+            data: None,
+        }
+    };
+
+    // Fetch all devices
+    let devices: Vec<(String, String)> =
+        sqlx::query_as("SELECT device_token, environment FROM devices")
+            .fetch_all(&state.db)
             .await
             .map_err(|e| {
                 (
@@ -190,62 +241,83 @@ async fn send_notification(
                 )
             })?;
 
-    let environment = match device {
-        Some((env_str,)) => Environment::try_from(env_str.as_str()).map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    success: false,
-                    error: "Invalid environment in database".to_string(),
-                }),
-            )
-        })?,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    success: false,
-                    error: "Device not registered".to_string(),
-                }),
-            ))
-        }
-    };
+    if devices.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                success: false,
+                error: "No devices registered".to_string(),
+            }),
+        ));
+    }
 
-    // Build and send notification
     let apns_clients = state.apns.read().await;
-    let apns_id = apns_clients
-        .send_notification(&req, environment)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    success: false,
-                    error: format!("Failed to send notification: {}", e),
-                }),
-            )
-        })?;
+    let payload_json = serde_json::to_string(&req.data).ok();
 
-    // Record the push
-    let payload = serde_json::to_string(&req.data).ok();
-    let _ = sqlx::query(
-        r#"
-        INSERT INTO pushes (device_token, apns_id, title, body, payload)
-        VALUES (?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(&req.device_token)
-    .bind(&apns_id)
-    .bind(&req.title)
-    .bind(&req.body)
-    .bind(&payload)
-    .execute(&state.db)
-    .await;
+    let mut results = Vec::new();
+    let mut sent = 0;
+    let mut failed = 0;
+
+    for (device_token, env_str) in devices {
+        let environment = match Environment::try_from(env_str.as_str()) {
+            Ok(env) => env,
+            Err(_) => {
+                results.push(DeviceSendResult {
+                    device_token,
+                    success: false,
+                    apns_id: None,
+                    error: Some("Invalid environment in database".to_string()),
+                });
+                failed += 1;
+                continue;
+            }
+        };
+
+        match apns_clients
+            .send_notification(&device_token, &req, environment)
+            .await
+        {
+            Ok(apns_id) => {
+                // Record the push
+                let _ = sqlx::query(
+                    r#"
+                    INSERT INTO pushes (device_token, apns_id, title, body, payload)
+                    VALUES (?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&device_token)
+                .bind(&apns_id)
+                .bind(&req.title)
+                .bind(&req.body)
+                .bind(&payload_json)
+                .execute(&state.db)
+                .await;
+
+                results.push(DeviceSendResult {
+                    device_token,
+                    success: true,
+                    apns_id: Some(apns_id),
+                    error: None,
+                });
+                sent += 1;
+            }
+            Err(e) => {
+                results.push(DeviceSendResult {
+                    device_token,
+                    success: false,
+                    apns_id: None,
+                    error: Some(e.to_string()),
+                });
+                failed += 1;
+            }
+        }
+    }
 
     Ok(Json(SendResponse {
-        success: true,
-        message: "Notification sent successfully".to_string(),
-        apns_id: Some(apns_id),
+        success: sent > 0,
+        sent,
+        failed,
+        results,
     }))
 }
 
@@ -405,12 +477,10 @@ mod tests {
     #[test]
     fn test_deserialize_send_request_simple() {
         let json = r#"{
-            "device_token": "abc123",
             "title": "Hello",
             "body": "World"
         }"#;
         let req: SendRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.device_token, "abc123");
         assert_eq!(req.title, Some("Hello".to_string()));
         assert_eq!(req.body, Some("World".to_string()));
     }
@@ -418,14 +488,12 @@ mod tests {
     #[test]
     fn test_deserialize_send_request_with_sound() {
         let json = r#"{
-            "device_token": "abc123",
             "sound": "default"
         }"#;
         let req: SendRequest = serde_json::from_str(json).unwrap();
         assert!(matches!(req.sound, Some(SoundConfig::Simple(s)) if s == "default"));
 
         let json = r#"{
-            "device_token": "abc123",
             "sound": {"name": "alert.caf", "critical": true, "volume": 0.8}
         }"#;
         let req: SendRequest = serde_json::from_str(json).unwrap();
@@ -439,7 +507,6 @@ mod tests {
     #[test]
     fn test_deserialize_send_request_with_data() {
         let json = r#"{
-            "device_token": "abc123",
             "data": {"key": "value", "number": 42}
         }"#;
         let req: SendRequest = serde_json::from_str(json).unwrap();

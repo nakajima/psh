@@ -37,6 +37,7 @@ impl ApnsClients {
 
     pub async fn send_notification(
         &self,
+        device_token: &str,
         req: &SendRequest,
         environment: Environment,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -150,7 +151,7 @@ impl ApnsClients {
             options.apns_push_type = Some(PushType::Alert);
         }
 
-        let mut payload = builder.build(&req.device_token, options);
+        let mut payload = builder.build(device_token, options);
 
         // Add custom data if present
         if let Some(ref data) = req.data {
@@ -172,7 +173,6 @@ mod tests {
 
     fn make_send_request() -> SendRequest {
         SendRequest {
-            device_token: "test_token".to_string(),
             title: None,
             subtitle: None,
             body: None,
@@ -261,7 +261,7 @@ mod tests {
             builder = builder.set_category(category);
         }
 
-        let payload = builder.build(&req.device_token, Default::default());
+        let payload = builder.build("test_token", Default::default());
         payload.to_json_string().unwrap()
     }
 
