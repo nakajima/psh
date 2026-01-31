@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A67E8B882F2DED9100D3B863 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A67E8B872F2DED9100D3B863 /* GRDB */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A67E8B692F29708300D3B863 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A67E8B882F2DED9100D3B863 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = psh;
 			packageProductDependencies = (
+				A67E8B872F2DED9100D3B863 /* GRDB */,
 			);
 			productName = psh;
 			productReference = A67E8B5B2F29708200D3B863 /* psh.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = A67E8B522F29708200D3B863;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A67E8B862F2DED9100D3B863 /* XCRemoteSwiftPackageReference "GRDB" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A67E8B5C2F29708200D3B863 /* Products */;
 			projectDirPath = "";
@@ -390,6 +399,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = psh/psh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z773AM52SJ;
@@ -434,6 +444,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = psh/psh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z773AM52SJ;
@@ -615,6 +626,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A67E8B862F2DED9100D3B863 /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A67E8B872F2DED9100D3B863 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A67E8B862F2DED9100D3B863 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A67E8B532F29708200D3B863 /* Project object */;
 }
