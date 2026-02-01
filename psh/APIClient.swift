@@ -31,6 +31,28 @@ struct RegisterResponse: Decodable {
     let message: String
 }
 
+struct ServerPush: Decodable, Identifiable {
+    let id: Int64
+    let deviceToken: String
+    let apnsId: String?
+    let title: String?
+    let body: String?
+    let payload: String?
+    let sentAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case deviceToken = "device_token"
+        case apnsId = "apns_id"
+        case title, body, payload
+        case sentAt = "sent_at"
+    }
+}
+
+struct PushesResponse: Decodable {
+    let pushes: [ServerPush]
+}
+
 final class APIClient: Sendable {
     static let shared = APIClient()
 
@@ -90,16 +112,30 @@ final class APIClient: Sendable {
             throw APIError.serverError(result.message)
         }
     }
+
+    func fetchPushes() async throws -> [ServerPush] {
+        let url = baseURL.appendingPathComponent("pushes")
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.fetchFailed
+        }
+
+        return try JSONDecoder().decode(PushesResponse.self, from: data).pushes
+    }
 }
 
 enum APIError: Error, LocalizedError {
     case registrationFailed
+    case fetchFailed
     case serverError(String)
 
     var errorDescription: String? {
         switch self {
         case .registrationFailed:
             return "Failed to register device"
+        case .fetchFailed:
+            return "Failed to fetch pushes"
         case .serverError(let message):
             return message
         }

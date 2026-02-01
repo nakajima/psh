@@ -6,59 +6,56 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var notifications: [PushNotification] = []
+    @State private var pushes: [ServerPush] = []
     @State private var searchText = ""
     @State private var errorMessage: String?
+
+    private var filteredPushes: [ServerPush] {
+        if searchText.isEmpty {
+            return pushes
+        }
+        return pushes.filter { push in
+            (push.title?.localizedCaseInsensitiveContains(searchText) ?? false) ||
+            (push.body?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if notifications.isEmpty && searchText.isEmpty {
+                if filteredPushes.isEmpty && searchText.isEmpty {
                     ContentUnavailableView(
                         "No Notifications",
                         systemImage: "bell.slash",
                         description: Text("Push notifications you receive will appear here.")
                     )
-                } else if notifications.isEmpty {
+                } else if filteredPushes.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
-                    List(notifications) { notification in
-                        NotificationRow(notification: notification)
+                    List(filteredPushes) { push in
+                        NotificationRow(push: push)
                     }
                 }
             }
             .navigationTitle("Notifications")
             .searchable(text: $searchText, prompt: "Search notifications")
-            .onChange(of: searchText) {
-                search()
-            }
-            .onAppear {
-                loadNotifications()
+            .task {
+                await fetchPushes()
             }
             .onReceive(NotificationCenter.default.publisher(for: .pushNotificationReceived)) { _ in
-                loadNotifications()
+                Task {
+                    await fetchPushes()
+                }
             }
             .refreshable {
-                loadNotifications()
+                await fetchPushes()
             }
         }
     }
 
-    private func loadNotifications() {
+    private func fetchPushes() async {
         do {
-            if searchText.isEmpty {
-                notifications = try AppDatabase.shared.allNotifications()
-            } else {
-                notifications = try AppDatabase.shared.search(searchText)
-            }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func search() {
-        do {
-            notifications = try AppDatabase.shared.search(searchText)
+            pushes = try await APIClient.shared.fetchPushes()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -66,42 +63,48 @@ struct ContentView: View {
 }
 
 struct NotificationRow: View {
-    let notification: PushNotification
+    let push: ServerPush
+
+    private var sentAtDate: Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: push.sentAt) {
+            return date
+        }
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: push.sentAt) {
+            return date
+        }
+        // Try SQLite default format
+        let sqliteFormatter = DateFormatter()
+        sqliteFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        sqliteFormatter.timeZone = TimeZone(identifier: "UTC")
+        return sqliteFormatter.date(from: push.sentAt)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let title = notification.title {
+            if let title = push.title {
                 Text(title)
                     .font(.headline)
             }
-            if let subtitle = notification.subtitle {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if let body = notification.body {
+            if let body = push.body {
                 Text(body)
                     .font(.body)
-                    .foregroundStyle(notification.title == nil ? .primary : .secondary)
+                    .foregroundStyle(push.title == nil ? .primary : .secondary)
             }
             HStack {
-                if let category = notification.category {
-                    Text(category)
-                        .font(.caption)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.2))
-                        .clipShape(Capsule())
-                }
-                if let badge = notification.badge {
-                    Label("\(badge)", systemImage: "app.badge")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 Spacer()
-                Text(notification.receivedAt, style: .relative)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                if let date = sentAtDate {
+                    Text(date, style: .relative)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text(push.sentAt)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding(.vertical, 4)

@@ -137,6 +137,22 @@ struct StatsResponse {
     total_pushes: i64,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct PushRecord {
+    id: i64,
+    device_token: String,
+    apns_id: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
+    payload: Option<String>,
+    sent_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PushesResponse {
+    pushes: Vec<PushRecord>,
+}
+
 async fn register_device(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
@@ -362,6 +378,27 @@ async fn get_stats(
     }))
 }
 
+async fn get_pushes(
+    State(state): State<AppState>,
+) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let pushes: Vec<PushRecord> = sqlx::query_as(
+        "SELECT id, device_token, apns_id, title, body, payload, sent_at FROM pushes ORDER BY sent_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                success: false,
+                error: format!("Database error: {}", e),
+            }),
+        )
+    })?;
+
+    Ok(Json(PushesResponse { pushes }))
+}
+
 async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -426,6 +463,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(|| async { "OK" }))
         .route("/stats", get(get_stats))
+        .route("/pushes", get(get_pushes))
         .route("/register", post(register_device))
         .route("/send", post(send_notification))
         .with_state(state);
@@ -513,5 +551,41 @@ mod tests {
         let data = req.data.unwrap();
         assert_eq!(data.get("key").unwrap(), "value");
         assert_eq!(data.get("number").unwrap(), 42);
+    }
+
+    #[test]
+    fn test_serialize_pushes_response() {
+        let pushes = vec![
+            PushRecord {
+                id: 1,
+                device_token: "abc123".to_string(),
+                apns_id: Some("uuid-1".to_string()),
+                title: Some("Test Title".to_string()),
+                body: Some("Test Body".to_string()),
+                payload: None,
+                sent_at: "2024-01-01 12:00:00".to_string(),
+            },
+            PushRecord {
+                id: 2,
+                device_token: "def456".to_string(),
+                apns_id: None,
+                title: None,
+                body: Some("Body only".to_string()),
+                payload: Some(r#"{"key":"value"}"#.to_string()),
+                sent_at: "2024-01-02 12:00:00".to_string(),
+            },
+        ];
+        let response = PushesResponse { pushes };
+        let json = serde_json::to_string(&response).unwrap();
+
+        assert!(json.contains("\"id\":1"));
+        assert!(json.contains("\"device_token\":\"abc123\""));
+        assert!(json.contains("\"apns_id\":\"uuid-1\""));
+        assert!(json.contains("\"title\":\"Test Title\""));
+        assert!(json.contains("\"body\":\"Test Body\""));
+        assert!(json.contains("\"sent_at\":\"2024-01-01 12:00:00\""));
+        assert!(json.contains("\"id\":2"));
+        assert!(json.contains("\"apns_id\":null"));
+        assert!(json.contains("\"title\":null"));
     }
 }
