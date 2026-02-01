@@ -42,7 +42,7 @@ impl Config {
     }
 
     fn config_path() -> Option<PathBuf> {
-        dirs::config_dir().map(|p| p.join("psh").join("config.toml"))
+        dirs::home_dir().map(|p| p.join(".config").join("psh").join("config.toml"))
     }
 }
 
