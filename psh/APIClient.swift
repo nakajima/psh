@@ -56,14 +56,21 @@ struct PushesResponse: Decodable {
 final class APIClient: Sendable {
     static let shared = APIClient()
 
+    private static let deviceTokenKey = "deviceToken"
+
     let baseURL: URL
 
     init(baseURL: URL = URL(string: "https://psh.fishmt.net")!) {
         self.baseURL = baseURL
     }
 
+    var storedDeviceToken: String? {
+        UserDefaults.standard.string(forKey: Self.deviceTokenKey)
+    }
+
     func register(deviceToken: Data) async throws {
         let tokenString = deviceToken.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(tokenString, forKey: Self.deviceTokenKey)
 
         #if DEBUG
         let environment = "sandbox"
@@ -114,8 +121,14 @@ final class APIClient: Sendable {
     }
 
     func fetchPushes() async throws -> [ServerPush] {
-        let url = baseURL.appendingPathComponent("pushes")
-        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let deviceToken = storedDeviceToken else {
+            throw APIError.noDeviceToken
+        }
+
+        var components = URLComponents(url: baseURL.appendingPathComponent("pushes"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "device_token", value: deviceToken)]
+
+        let (data, response) = try await URLSession.shared.data(from: components.url!)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw APIError.fetchFailed
@@ -128,6 +141,7 @@ final class APIClient: Sendable {
 enum APIError: Error, LocalizedError {
     case registrationFailed
     case fetchFailed
+    case noDeviceToken
     case serverError(String)
 
     var errorDescription: String? {
@@ -136,6 +150,8 @@ enum APIError: Error, LocalizedError {
             return "Failed to register device"
         case .fetchFailed:
             return "Failed to fetch pushes"
+        case .noDeviceToken:
+            return "Device not registered"
         case .serverError(let message):
             return message
         }

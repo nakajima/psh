@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::State,
+    extract::{Query, State},
     http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
@@ -151,6 +151,11 @@ struct PushRecord {
 #[derive(Debug, Serialize)]
 struct PushesResponse {
     pushes: Vec<PushRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PushesQuery {
+    device_token: String,
 }
 
 async fn register_device(
@@ -380,10 +385,12 @@ async fn get_stats(
 
 async fn get_pushes(
     State(state): State<AppState>,
+    Query(query): Query<PushesQuery>,
 ) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
     let pushes: Vec<PushRecord> = sqlx::query_as(
-        "SELECT id, device_token, apns_id, title, body, payload, sent_at FROM pushes ORDER BY sent_at DESC",
+        "SELECT id, device_token, apns_id, title, body, payload, sent_at FROM pushes WHERE device_token = ? ORDER BY sent_at DESC",
     )
+    .bind(&query.device_token)
     .fetch_all(&state.db)
     .await
     .map_err(|e| {
@@ -587,5 +594,12 @@ mod tests {
         assert!(json.contains("\"id\":2"));
         assert!(json.contains("\"apns_id\":null"));
         assert!(json.contains("\"title\":null"));
+    }
+
+    #[test]
+    fn test_deserialize_pushes_query() {
+        let json = r#"{"device_token": "abc123"}"#;
+        let parsed: PushesQuery = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.device_token, "abc123");
     }
 }

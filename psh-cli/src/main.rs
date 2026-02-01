@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -257,6 +257,23 @@ struct ErrorResponse {
 }
 
 impl SendArgs {
+    fn is_empty(&self) -> bool {
+        self.body_positional.is_none()
+            && self.title.is_none()
+            && self.subtitle.is_none()
+            && self.body.is_none()
+            && self.launch_image.is_none()
+            && self.title_loc_key.is_none()
+            && self.loc_key.is_none()
+            && self.badge.is_none()
+            && self.sound.is_none()
+            && !self.sound_critical
+            && !self.content_available
+            && !self.mutable_content
+            && self.category.is_none()
+            && self.data.is_empty()
+    }
+
     fn into_request(self) -> SendRequest {
         let body = self.body.or(self.body_positional);
 
@@ -436,7 +453,17 @@ async fn main() -> Result<()> {
     let server = resolve_server(cli.server, &config)?;
 
     match cli.command {
-        Commands::Send(args) => cmd_send(&server, args).await,
+        Commands::Send(args) => {
+            if args.is_empty() {
+                Cli::command()
+                    .find_subcommand_mut("send")
+                    .unwrap()
+                    .print_help()?;
+                println!();
+                return Ok(());
+            }
+            cmd_send(&server, args).await
+        }
         Commands::Stats => cmd_stats(&server).await,
         Commands::Ping => cmd_ping(&server).await,
     }
