@@ -87,12 +87,16 @@ jobs:
         run: |
           curl -sLO https://github.com/nakajima/psh/releases/download/v${{ steps.version.outputs.version }}/psh-aarch64-apple-darwin.tar.gz
           curl -sLO https://github.com/nakajima/psh/releases/download/v${{ steps.version.outputs.version }}/psh-x86_64-apple-darwin.tar.gz
+          curl -sLO https://github.com/nakajima/psh/releases/download/v${{ steps.version.outputs.version }}/psh-aarch64-unknown-linux-gnu.tar.gz
+          curl -sLO https://github.com/nakajima/psh/releases/download/v${{ steps.version.outputs.version }}/psh-x86_64-unknown-linux-gnu.tar.gz
 
       - name: Calculate SHA256
         id: sha
         run: |
-          echo "arm64=$(shasum -a 256 psh-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
-          echo "x86_64=$(shasum -a 256 psh-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "mac_arm64=$(shasum -a 256 psh-aarch64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "mac_x86_64=$(shasum -a 256 psh-x86_64-apple-darwin.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(shasum -a 256 psh-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_x86_64=$(shasum -a 256 psh-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
 
       - name: Update Homebrew formula
         env:
@@ -111,11 +115,22 @@ jobs:
             on_macos do
               on_arm do
                 url "https://github.com/nakajima/psh/releases/download/v#{version}/psh-aarch64-apple-darwin.tar.gz"
-                sha256 "${{ steps.sha.outputs.arm64 }}"
+                sha256 "${{ steps.sha.outputs.mac_arm64 }}"
               end
               on_intel do
                 url "https://github.com/nakajima/psh/releases/download/v#{version}/psh-x86_64-apple-darwin.tar.gz"
-                sha256 "${{ steps.sha.outputs.x86_64 }}"
+                sha256 "${{ steps.sha.outputs.mac_x86_64 }}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/nakajima/psh/releases/download/v#{version}/psh-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.sha.outputs.linux_arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/nakajima/psh/releases/download/v#{version}/psh-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.sha.outputs.linux_x86_64 }}"
               end
             end
 
