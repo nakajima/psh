@@ -16,11 +16,6 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MARKER_FILE="$SCRIPT_DIR/.setup-complete"
 
-# Default values (to be replaced)
-DEFAULT_SERVER_URL="https://psh.fishmt.net"
-DEFAULT_BUNDLE_ID="fm.folder.psh"
-DEFAULT_TEAM_ID="Z773AM52SJ"
-
 # Flags
 FORCE=false
 
@@ -139,34 +134,36 @@ prompt_server_url() {
 
 prompt_bundle_id() {
     echo ""
-    echo -e "${BLUE}Bundle Identifier${NC} (optional)"
+    echo -e "${BLUE}Bundle Identifier${NC}"
     echo "The app bundle ID (e.g., com.yourcompany.psh)"
-    echo "Press Enter to keep the current value."
     echo ""
-    read -p "Bundle ID [$DEFAULT_BUNDLE_ID]: " input
-    if [[ -n "$input" ]]; then
-        if ! validate_bundle_id "$input"; then
-            print_error "Invalid bundle ID format. Using default."
+    while true; do
+        read -p "Bundle ID: " BUNDLE_ID
+        if [[ -z "$BUNDLE_ID" ]]; then
+            print_error "Bundle ID is required"
+        elif ! validate_bundle_id "$BUNDLE_ID"; then
+            print_error "Invalid bundle ID format"
         else
-            BUNDLE_ID="$input"
+            break
         fi
-    fi
+    done
 }
 
 prompt_team_id() {
     echo ""
-    echo -e "${BLUE}Apple Team ID${NC} (optional)"
+    echo -e "${BLUE}Apple Team ID${NC}"
     echo "Your 10-character Apple Developer Team ID"
-    echo "Press Enter to keep the current value."
     echo ""
-    read -p "Team ID [$DEFAULT_TEAM_ID]: " input
-    if [[ -n "$input" ]]; then
-        if ! validate_team_id "$input"; then
-            print_error "Invalid Team ID format. Must be 10 alphanumeric characters. Using default."
+    while true; do
+        read -p "Team ID: " TEAM_ID
+        if [[ -z "$TEAM_ID" ]]; then
+            print_error "Team ID is required"
+        elif ! validate_team_id "$TEAM_ID"; then
+            print_error "Invalid Team ID format. Must be 10 alphanumeric characters."
         else
-            TEAM_ID="$input"
+            break
         fi
-    fi
+    done
 }
 
 update_files() {
@@ -174,49 +171,43 @@ update_files() {
     print_info "Updating configuration files..."
 
     # Update server URL in APIClient.swift
-    if [[ -n "$SERVER_URL" ]]; then
-        local api_client="$SCRIPT_DIR/psh/APIClient.swift"
-        if [[ -f "$api_client" ]]; then
-            sed -i '' "s|$DEFAULT_SERVER_URL|$SERVER_URL|g" "$api_client"
-            print_success "Updated server URL in APIClient.swift"
-        fi
+    local api_client="$SCRIPT_DIR/psh/APIClient.swift"
+    if [[ -f "$api_client" ]]; then
+        sed -i '' "s|__SERVER_URL__|$SERVER_URL|g" "$api_client"
+        print_success "Updated server URL in APIClient.swift"
     fi
 
     # Update bundle ID in multiple files
-    if [[ -n "$BUNDLE_ID" ]]; then
-        local files=(
-            "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
-            "$SCRIPT_DIR/fastlane/Appfile"
-            "$SCRIPT_DIR/docker-compose.yml"
-            "$SCRIPT_DIR/.env.example"
-        )
-        for file in "${files[@]}"; do
-            if [[ -f "$file" ]]; then
-                sed -i '' "s|$DEFAULT_BUNDLE_ID|$BUNDLE_ID|g" "$file"
-                print_success "Updated bundle ID in $(basename "$file")"
-            fi
-        done
-    fi
+    local bundle_files=(
+        "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
+        "$SCRIPT_DIR/fastlane/Appfile"
+        "$SCRIPT_DIR/docker-compose.yml"
+        "$SCRIPT_DIR/.env.example"
+    )
+    for file in "${bundle_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            sed -i '' "s|__BUNDLE_ID__|$BUNDLE_ID|g" "$file"
+            print_success "Updated bundle ID in $(basename "$file")"
+        fi
+    done
 
     # Update team ID in Xcode project and fastlane
-    if [[ -n "$TEAM_ID" ]]; then
-        local files=(
-            "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
-            "$SCRIPT_DIR/fastlane/Appfile"
-        )
-        for file in "${files[@]}"; do
-            if [[ -f "$file" ]]; then
-                sed -i '' "s|$DEFAULT_TEAM_ID|$TEAM_ID|g" "$file"
-                print_success "Updated team ID in $(basename "$file")"
-            fi
-        done
-    fi
+    local team_files=(
+        "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
+        "$SCRIPT_DIR/fastlane/Appfile"
+    )
+    for file in "${team_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            sed -i '' "s|__TEAM_ID__|$TEAM_ID|g" "$file"
+            print_success "Updated team ID in $(basename "$file")"
+        fi
+    done
 
     # Create marker file
     echo "Setup completed on $(date)" > "$MARKER_FILE"
-    echo "Server URL: ${SERVER_URL:-$DEFAULT_SERVER_URL}" >> "$MARKER_FILE"
-    echo "Bundle ID: ${BUNDLE_ID:-$DEFAULT_BUNDLE_ID}" >> "$MARKER_FILE"
-    echo "Team ID: ${TEAM_ID:-$DEFAULT_TEAM_ID}" >> "$MARKER_FILE"
+    echo "Server URL: $SERVER_URL" >> "$MARKER_FILE"
+    echo "Bundle ID: $BUNDLE_ID" >> "$MARKER_FILE"
+    echo "Team ID: $TEAM_ID" >> "$MARKER_FILE"
 }
 
 main() {
@@ -235,8 +226,8 @@ main() {
     echo ""
     echo -e "${BLUE}Summary:${NC}"
     echo "  Server URL: $SERVER_URL"
-    echo "  Bundle ID:  ${BUNDLE_ID:-$DEFAULT_BUNDLE_ID (unchanged)}"
-    echo "  Team ID:    ${TEAM_ID:-$DEFAULT_TEAM_ID (unchanged)}"
+    echo "  Bundle ID:  $BUNDLE_ID"
+    echo "  Team ID:    $TEAM_ID"
     echo ""
 
     read -p "Apply these changes? [Y/n] " confirm

@@ -60,7 +60,7 @@ final class APIClient: Sendable {
 
     let baseURL: URL
 
-    init(baseURL: URL = URL(string: "https://psh.fishmt.net")!) {
+    init(baseURL: URL = URL(string: "__SERVER_URL__")!) {
         self.baseURL = baseURL
     }
 

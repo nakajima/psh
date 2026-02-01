@@ -1,2 +1,2 @@
-app_identifier "fm.folder.psh"
-team_id "Z773AM52SJ"
+app_identifier "__BUNDLE_ID__"
+team_id "__TEAM_ID__"
