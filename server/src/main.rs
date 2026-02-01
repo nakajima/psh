@@ -23,6 +23,7 @@ struct AppState {
 #[derive(Debug, Deserialize)]
 struct RegisterRequest {
     device_token: String,
+    installation_id: String,
     environment: Environment,
     device_name: Option<String>,
     device_type: Option<String>,
@@ -155,7 +156,7 @@ struct PushesResponse {
 
 #[derive(Debug, Deserialize)]
 struct PushesQuery {
-    device_token: String,
+    installation_id: String,
 }
 
 async fn register_device(
@@ -164,9 +165,10 @@ async fn register_device(
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
     let result = sqlx::query(
         r#"
-        INSERT INTO devices (device_token, environment, device_name, device_type, os_version, app_version, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO devices (device_token, installation_id, environment, device_name, device_type, os_version, app_version, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(device_token) DO UPDATE SET
+            installation_id = excluded.installation_id,
             environment = excluded.environment,
             device_name = excluded.device_name,
             device_type = excluded.device_type,
@@ -176,6 +178,7 @@ async fn register_device(
         "#,
     )
     .bind(&req.device_token)
+    .bind(&req.installation_id)
     .bind(req.environment.as_str())
     .bind(&req.device_name)
     .bind(&req.device_type)
@@ -387,17 +390,17 @@ async fn get_pushes(
     State(state): State<AppState>,
     Query(query): Query<PushesQuery>,
 ) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Only return pushes sent after the device's last registration
+    // Return pushes for devices matching the installation_id
     let pushes: Vec<PushRecord> = sqlx::query_as(
         r#"
         SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.sent_at
         FROM pushes p
         JOIN devices d ON p.device_token = d.device_token
-        WHERE p.device_token = ? AND p.sent_at >= d.updated_at
+        WHERE d.installation_id = ?
         ORDER BY p.sent_at DESC
         "#,
     )
-    .bind(&query.device_token)
+    .bind(&query.installation_id)
     .fetch_all(&state.db)
     .await
     .map_err(|e| {
@@ -418,6 +421,7 @@ async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         r#"
         CREATE TABLE IF NOT EXISTS devices (
             device_token TEXT PRIMARY KEY,
+            installation_id TEXT,
             environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
             device_name TEXT,
             device_type TEXT,
@@ -430,6 +434,11 @@ async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     )
     .execute(pool)
     .await?;
+
+    // Add installation_id column if it doesn't exist (migration for existing DBs)
+    let _ = sqlx::query("ALTER TABLE devices ADD COLUMN installation_id TEXT")
+        .execute(pool)
+        .await;
 
     sqlx::query(
         r#"
@@ -517,11 +526,13 @@ mod tests {
     fn test_deserialize_register_request() {
         let json = r#"{
             "device_token": "abc123",
+            "installation_id": "uuid-install-1",
             "environment": "sandbox",
             "device_name": "John's iPhone"
         }"#;
         let req: RegisterRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.device_token, "abc123");
+        assert_eq!(req.installation_id, "uuid-install-1");
         assert_eq!(req.environment, Environment::Sandbox);
         assert_eq!(req.device_name, Some("John's iPhone".to_string()));
     }
@@ -605,8 +616,8 @@ mod tests {
 
     #[test]
     fn test_deserialize_pushes_query() {
-        let json = r#"{"device_token": "abc123"}"#;
+        let json = r#"{"installation_id": "uuid-install-1"}"#;
         let parsed: PushesQuery = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.device_token, "abc123");
+        assert_eq!(parsed.installation_id, "uuid-install-1");
     }
 }

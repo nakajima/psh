@@ -10,6 +10,7 @@ import UIKit
 
 struct RegisterRequest: Encodable {
     let deviceToken: String
+    let installationId: String
     let environment: String
     let deviceName: String?
     let deviceType: String?
@@ -18,6 +19,7 @@ struct RegisterRequest: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case deviceToken = "device_token"
+        case installationId = "installation_id"
         case environment
         case deviceName = "device_name"
         case deviceType = "device_type"
@@ -57,6 +59,7 @@ final class APIClient: Sendable {
     static let shared = APIClient()
 
     private static let deviceTokenKey = "deviceToken"
+    private static let installationIdKey = "installationId"
 
     let baseURL: URL
 
@@ -66,6 +69,15 @@ final class APIClient: Sendable {
 
     var storedDeviceToken: String? {
         UserDefaults.standard.string(forKey: Self.deviceTokenKey)
+    }
+
+    var installationId: String {
+        if let existing = UserDefaults.standard.string(forKey: Self.installationIdKey) {
+            return existing
+        }
+        let newId = UUID().uuidString
+        UserDefaults.standard.set(newId, forKey: Self.installationIdKey)
+        return newId
     }
 
     func register(deviceToken: Data) async throws {
@@ -96,6 +108,7 @@ final class APIClient: Sendable {
 
         let request = RegisterRequest(
             deviceToken: tokenString,
+            installationId: installationId,
             environment: environment,
             deviceName: deviceName,
             deviceType: deviceType,
@@ -121,12 +134,8 @@ final class APIClient: Sendable {
     }
 
     func fetchPushes() async throws -> [ServerPush] {
-        guard let deviceToken = storedDeviceToken else {
-            throw APIError.noDeviceToken
-        }
-
         var components = URLComponents(url: baseURL.appendingPathComponent("pushes"), resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "device_token", value: deviceToken)]
+        components.queryItems = [URLQueryItem(name: "installation_id", value: installationId)]
 
         let (data, response) = try await URLSession.shared.data(from: components.url!)
 
@@ -141,7 +150,6 @@ final class APIClient: Sendable {
 enum APIError: Error, LocalizedError {
     case registrationFailed
     case fetchFailed
-    case noDeviceToken
     case serverError(String)
 
     var errorDescription: String? {
@@ -150,8 +158,6 @@ enum APIError: Error, LocalizedError {
             return "Failed to register device"
         case .fetchFailed:
             return "Failed to fetch pushes"
-        case .noDeviceToken:
-            return "Device not registered"
         case .serverError(let message):
             return message
         }
