@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # psh Setup Wizard
-# Configures project-specific values for your deployment
+# Creates Config.xcconfig with your project-specific values
 
 set -e
 
@@ -10,19 +10,31 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MARKER_FILE="$SCRIPT_DIR/.setup-complete"
+CONFIG_FILE="$SCRIPT_DIR/Config.xcconfig"
 
-# Flags
-FORCE=false
+print_success() { echo -e "${GREEN}✓ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}! $1${NC}"; }
+print_error() { echo -e "${RED}✗ $1${NC}"; }
+print_info() { echo -e "${BLUE}→ $1${NC}"; }
 
-# Values to set
-SERVER_URL=""
-BUNDLE_ID=""
-TEAM_ID=""
+validate_bundle_id() {
+    local bundle_id="$1"
+    if [[ ! "$bundle_id" =~ ^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$ ]]; then
+        return 1
+    fi
+    return 0
+}
+
+validate_team_id() {
+    local team_id="$1"
+    if [[ ! "$team_id" =~ ^[A-Z0-9]{10}$ ]]; then
+        return 1
+    fi
+    return 0
+}
 
 print_header() {
     echo -e "${BLUE}"
@@ -32,107 +44,37 @@ print_header() {
     echo -e "${NC}"
 }
 
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
+main() {
+    print_header
 
-print_warning() {
-    echo -e "${YELLOW}! $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
-
-print_info() {
-    echo -e "${BLUE}→ $1${NC}"
-}
-
-usage() {
-    cat << EOF
-Usage: $0 [OPTIONS]
-
-Options:
-  --force              Re-run setup even if already completed
-  -h, --help           Show this help message
-
-Examples:
-  $0                   # Run setup wizard
-  $0 --force           # Re-run setup wizard
-EOF
-    exit 0
-}
-
-validate_url() {
-    local url="$1"
-    if [[ ! "$url" =~ ^https?:// ]]; then
-        return 1
+    if [[ -f "$CONFIG_FILE" ]]; then
+        print_warning "Config.xcconfig already exists."
+        read -p "Overwrite? [y/N] " confirm
+        if [[ ! "$confirm" =~ ^[Yy] ]]; then
+            echo "Setup cancelled."
+            exit 0
+        fi
     fi
-    return 0
-}
 
-validate_bundle_id() {
-    local bundle_id="$1"
-    # Bundle ID should be reverse domain notation: com.example.app
-    if [[ ! "$bundle_id" =~ ^[a-zA-Z][a-zA-Z0-9-]*(\.[a-zA-Z][a-zA-Z0-9-]*)+$ ]]; then
-        return 1
-    fi
-    return 0
-}
-
-validate_team_id() {
-    local team_id="$1"
-    # Team ID should be exactly 10 alphanumeric characters
-    if [[ ! "$team_id" =~ ^[A-Z0-9]{10}$ ]]; then
-        return 1
-    fi
-    return 0
-}
-
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --force)
-                FORCE=true
-                shift
-                ;;
-            -h|--help)
-                usage
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                usage
-                ;;
-        esac
-    done
-}
-
-check_already_run() {
-    if [[ -f "$MARKER_FILE" ]] && [[ "$FORCE" != true ]]; then
-        print_warning "Setup has already been completed."
-        echo "Run with --force to reconfigure."
-        exit 0
-    fi
-}
-
-prompt_server_url() {
+    echo "This wizard will create Config.xcconfig for your environment."
     echo ""
-    echo -e "${BLUE}Server URL${NC}"
-    echo "Enter the URL of your psh server."
+
+    # Prompt for Team ID
+    echo -e "${BLUE}Apple Team ID${NC}"
+    echo "Your 10-character Apple Developer Team ID"
     echo ""
     while true; do
-        read -p "Server URL: " SERVER_URL
-        if [[ -z "$SERVER_URL" ]]; then
-            print_error "Server URL is required"
-        elif ! validate_url "$SERVER_URL"; then
-            print_error "Invalid URL format. Must start with http:// or https://"
+        read -p "Team ID: " TEAM_ID
+        if [[ -z "$TEAM_ID" ]]; then
+            print_error "Team ID is required"
+        elif ! validate_team_id "$TEAM_ID"; then
+            print_error "Invalid Team ID format. Must be 10 alphanumeric characters."
         else
             break
         fi
     done
-}
 
-prompt_bundle_id() {
+    # Prompt for Bundle ID
     echo ""
     echo -e "${BLUE}Bundle Identifier${NC}"
     echo "The app bundle ID (e.g., com.yourcompany.psh)"
@@ -147,104 +89,34 @@ prompt_bundle_id() {
             break
         fi
     done
-}
 
-prompt_team_id() {
-    echo ""
-    echo -e "${BLUE}Apple Team ID${NC}"
-    echo "Your 10-character Apple Developer Team ID"
-    echo ""
-    while true; do
-        read -p "Team ID: " TEAM_ID
-        if [[ -z "$TEAM_ID" ]]; then
-            print_error "Team ID is required"
-        elif ! validate_team_id "$TEAM_ID"; then
-            print_error "Invalid Team ID format. Must be 10 alphanumeric characters."
-        else
-            break
-        fi
-    done
-}
-
-update_files() {
-    echo ""
-    print_info "Updating configuration files..."
-
-    # Update server URL in APIClient.swift
-    local api_client="$SCRIPT_DIR/psh/APIClient.swift"
-    if [[ -f "$api_client" ]]; then
-        sed -i '' "s|__SERVER_URL__|$SERVER_URL|g" "$api_client"
-        print_success "Updated server URL in APIClient.swift"
-    fi
-
-    # Update bundle ID in multiple files
-    local bundle_files=(
-        "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
-        "$SCRIPT_DIR/fastlane/Appfile"
-        "$SCRIPT_DIR/docker-compose.yml"
-        "$SCRIPT_DIR/.env.example"
-    )
-    for file in "${bundle_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            sed -i '' "s|__BUNDLE_ID__|$BUNDLE_ID|g" "$file"
-            print_success "Updated bundle ID in $(basename "$file")"
-        fi
-    done
-
-    # Update team ID in Xcode project and fastlane
-    local team_files=(
-        "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj"
-        "$SCRIPT_DIR/fastlane/Appfile"
-    )
-    for file in "${team_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            sed -i '' "s|__TEAM_ID__|$TEAM_ID|g" "$file"
-            print_success "Updated team ID in $(basename "$file")"
-        fi
-    done
-
-    # Create marker file
-    echo "Setup completed on $(date)" > "$MARKER_FILE"
-    echo "Server URL: $SERVER_URL" >> "$MARKER_FILE"
-    echo "Bundle ID: $BUNDLE_ID" >> "$MARKER_FILE"
-    echo "Team ID: $TEAM_ID" >> "$MARKER_FILE"
-}
-
-main() {
-    parse_args "$@"
-
-    print_header
-    check_already_run
-
-    echo "This wizard will configure psh for your environment."
-    echo ""
-
-    prompt_server_url
-    prompt_bundle_id
-    prompt_team_id
-
+    # Summary
     echo ""
     echo -e "${BLUE}Summary:${NC}"
-    echo "  Server URL: $SERVER_URL"
-    echo "  Bundle ID:  $BUNDLE_ID"
     echo "  Team ID:    $TEAM_ID"
+    echo "  Bundle ID:  $BUNDLE_ID"
     echo ""
 
-    read -p "Apply these changes? [Y/n] " confirm
+    read -p "Create Config.xcconfig? [Y/n] " confirm
     if [[ "$confirm" =~ ^[Nn] ]]; then
         echo "Setup cancelled."
         exit 0
     fi
 
-    update_files
+    # Write config file
+    cat > "$CONFIG_FILE" << EOF
+// psh Configuration
+// This file is gitignored - copy from Config.xcconfig.example
 
-    echo ""
-    print_success "Setup complete!"
+DEVELOPMENT_TEAM = $TEAM_ID
+PSH_BUNDLE_IDENTIFIER = $BUNDLE_ID
+EOF
+
+    print_success "Created Config.xcconfig"
     echo ""
     echo "Next steps:"
     echo "  1. Open psh.xcodeproj in Xcode"
-    echo "  2. Update signing settings if needed"
-    echo "  3. Build and run the app"
+    echo "  2. Build and run the app"
 }
 
 main "$@"

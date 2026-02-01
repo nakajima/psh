@@ -11,6 +11,6 @@ services:
       - APNS_KEY_PATH=/app/apns/AuthKey.p8
       - APNS_KEY_ID=${APNS_KEY_ID}
       - APNS_TEAM_ID=${APNS_TEAM_ID}
-      - APNS_TOPIC=${APNS_TOPIC:-__BUNDLE_ID__}
+      - APNS_TOPIC=${APNS_TOPIC:-fm.folder.psh}
       - RUST_LOG=${RUST_LOG:-info}
     restart: unless-stopped

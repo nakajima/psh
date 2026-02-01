@@ -1,2 +1,2 @@
-app_identifier "__BUNDLE_ID__"
-team_id "__TEAM_ID__"
+app_identifier ENV["PSH_BUNDLE_IDENTIFIER"] || "fm.folder.psh"
+team_id ENV["DEVELOPMENT_TEAM"] || "Z773AM52SJ"

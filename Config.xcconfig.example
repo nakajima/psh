@@ -1,0 +1,5 @@
+// psh Configuration
+// Copy this file to Config.xcconfig and fill in your values
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PSH_BUNDLE_IDENTIFIER = com.yourcompany.psh

@@ -31,6 +31,7 @@
 		A67E8B5B2F29708200D3B863 /* psh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = psh.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A67E8B682F29708300D3B863 /* pshTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pshTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A67E8B722F29708300D3B863 /* pshUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pshUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A67E8B912F3E000000000001 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -93,6 +94,7 @@
 		A67E8B522F29708200D3B863 = {
 			isa = PBXGroup;
 			children = (
+				A67E8B912F3E000000000001 /* Config.xcconfig */,
 				A67E8B5D2F29708200D3B863 /* psh */,
 				A67E8B6B2F29708300D3B863 /* pshTests */,
 				A67E8B752F29708300D3B863 /* pshUITests */,
@@ -326,7 +328,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -388,7 +389,6 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = __TEAM_ID__;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -409,13 +409,13 @@
 		};
 		A67E8B7D2F29708300D3B863 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = psh/psh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -440,7 +440,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -458,13 +458,13 @@
 		};
 		A67E8B7E2F29708300D3B863 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = psh/psh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -489,7 +489,7 @@
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
@@ -507,16 +507,16 @@
 		};
 		A67E8B802F29708300D3B863 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__Tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -533,16 +533,16 @@
 		};
 		A67E8B812F29708300D3B863 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__Tests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)Tests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -559,15 +559,15 @@
 		};
 		A67E8B832F29708300D3B863 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)UITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -584,15 +584,15 @@
 		};
 		A67E8B842F29708300D3B863 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A67E8B912F3E000000000001 /* Config.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 202601311831;
-				DEVELOPMENT_TEAM = __TEAM_ID__;
+				CURRENT_PROJECT_VERSION = 202601312006;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = __BUNDLE_ID__UITests;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(PSH_BUNDLE_IDENTIFIER)UITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
