@@ -2,8 +2,6 @@
 //  pshUITestsLaunchTests.swift
 //  pshUITests
 //
-//  Created by Pat Nakajima on 1/27/26.
-//
 
 import XCTest
 

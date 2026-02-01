@@ -2,8 +2,6 @@
 //  Database.swift
 //  psh
 //
-//  Created by Pat Nakajima on 1/27/26.
-//
 
 import Foundation
 import GRDB

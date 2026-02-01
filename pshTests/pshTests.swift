@@ -2,8 +2,6 @@
 //  pshTests.swift
 //  pshTests
 //
-//  Created by Pat Nakajima on 1/27/26.
-//
 
 import Testing
 import Foundation

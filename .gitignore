@@ -3,6 +3,7 @@ target
 vendor/
 .bundle/
 .envrc
+.setup-complete
 
 # Fastlane
 fastlane/api_key.json

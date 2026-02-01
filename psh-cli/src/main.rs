@@ -5,13 +5,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-const DEFAULT_SERVER: &str = "http://localhost:3000";
-
 #[derive(Parser)]
 #[command(name = "psh")]
 #[command(about = "Push notification server client")]
 struct Cli {
-    /// Server URL [default: http://localhost:3000]
+    /// Server URL (required via flag, PSH_SERVER env, or config file)
     #[arg(short, long, env = "PSH_SERVER")]
     server: Option<String>,
 
@@ -37,10 +35,18 @@ impl Config {
     }
 }
 
-fn resolve_server(cli_server: Option<String>, config: &Config) -> String {
+fn resolve_server(cli_server: Option<String>, config: &Config) -> Result<String> {
     cli_server
         .or_else(|| config.server.clone())
-        .unwrap_or_else(|| DEFAULT_SERVER.to_string())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No server configured.\n\n\
+                Set the server using one of:\n  \
+                - CLI flag: psh --server https://your.server.com ...\n  \
+                - Environment variable: PSH_SERVER=https://your.server.com\n  \
+                - Config file: ~/.config/psh/config.toml with `server = \"https://your.server.com\"`"
+            )
+        })
 }
 
 #[derive(Subcommand)]
@@ -402,7 +408,7 @@ fn truncate_token(token: &str) -> String {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = Config::load();
-    let server = resolve_server(cli.server, &config);
+    let server = resolve_server(cli.server, &config)?;
 
     match cli.command {
         Commands::Send(args) => cmd_send(&server, args).await,
@@ -831,7 +837,7 @@ server = "https://push.example.com"
         let config = Config {
             server: Some("https://config.example.com".to_string()),
         };
-        let result = resolve_server(Some("https://cli.example.com".to_string()), &config);
+        let result = resolve_server(Some("https://cli.example.com".to_string()), &config).unwrap();
         assert_eq!(result, "https://cli.example.com");
     }
 
@@ -840,14 +846,17 @@ server = "https://push.example.com"
         let config = Config {
             server: Some("https://config.example.com".to_string()),
         };
-        let result = resolve_server(None, &config);
+        let result = resolve_server(None, &config).unwrap();
         assert_eq!(result, "https://config.example.com");
     }
 
     #[test]
-    fn test_resolve_server_default_fallback() {
+    fn test_resolve_server_error_when_none() {
         let config = Config { server: None };
         let result = resolve_server(None, &config);
-        assert_eq!(result, DEFAULT_SERVER);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No server configured"));
+        assert!(err.contains("PSH_SERVER"));
     }
 }
