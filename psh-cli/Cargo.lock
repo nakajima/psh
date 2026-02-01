@@ -807,7 +807,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "psh"
+name = "psh-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",

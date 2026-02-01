@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -17,7 +18,7 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct Config {
     server: Option<String>,
 }
@@ -30,23 +31,47 @@ impl Config {
             .unwrap_or_default()
     }
 
+    fn save(&self) -> Result<()> {
+        let path = Self::config_path().context("Could not determine config directory")?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = toml::to_string_pretty(self)?;
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+
     fn config_path() -> Option<PathBuf> {
         dirs::config_dir().map(|p| p.join("psh").join("config.toml"))
     }
 }
 
+fn prompt_for_server() -> Result<String> {
+    print!("Server URL: ");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let server = input.trim().to_string();
+    if server.is_empty() {
+        anyhow::bail!("Server URL is required");
+    }
+    Ok(server)
+}
+
 fn resolve_server(cli_server: Option<String>, config: &Config) -> Result<String> {
-    cli_server
-        .or_else(|| config.server.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No server configured.\n\n\
-                Set the server using one of:\n  \
-                - CLI flag: psh --server https://your.server.com ...\n  \
-                - Environment variable: PSH_SERVER=https://your.server.com\n  \
-                - Config file: ~/.config/psh/config.toml with `server = \"https://your.server.com\"`"
-            )
-        })
+    if let Some(server) = cli_server.or_else(|| config.server.clone()) {
+        return Ok(server);
+    }
+
+    println!("No server configured.");
+    let server = prompt_for_server()?;
+
+    let mut config = Config::load();
+    config.server = Some(server.clone());
+    config.save()?;
+    println!("Saved to {:?}", Config::config_path().unwrap());
+
+    Ok(server)
 }
 
 #[derive(Subcommand)]
@@ -851,12 +876,11 @@ server = "https://push.example.com"
     }
 
     #[test]
-    fn test_resolve_server_error_when_none() {
-        let config = Config { server: None };
-        let result = resolve_server(None, &config);
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("No server configured"));
-        assert!(err.contains("PSH_SERVER"));
+    fn test_config_serialize() {
+        let config = Config {
+            server: Some("https://example.com".to_string()),
+        };
+        let toml = toml::to_string_pretty(&config).unwrap();
+        assert!(toml.contains("server = \"https://example.com\""));
     }
 }
