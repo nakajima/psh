@@ -19,8 +19,22 @@ print_warning() { echo -e "${YELLOW}! $1${NC}"; }
 print_error() { echo -e "${RED}✗ $1${NC}"; }
 print_info() { echo -e "${BLUE}→ $1${NC}"; }
 
-get_current_version() {
-    grep '^version' "$SCRIPT_DIR/server/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/'
+get_crate_version() {
+    local cargo_toml="$1"
+    grep '^version' "$cargo_toml" | head -1 | sed 's/.*"\(.*\)".*/\1/'
+}
+
+check_versions_in_sync() {
+    local cli_version=$(get_crate_version "$SCRIPT_DIR/psh-cli/Cargo.toml")
+    local server_version=$(get_crate_version "$SCRIPT_DIR/server/Cargo.toml")
+
+    if [[ "$cli_version" != "$server_version" ]]; then
+        print_error "Version mismatch: CLI=$cli_version, server=$server_version"
+        print_info "Update both Cargo.toml files to the same version before releasing"
+        exit 1
+    fi
+
+    echo "$cli_version"
 }
 
 get_last_tag() {
@@ -45,10 +59,10 @@ main() {
         exit 1
     fi
 
-    # Get current version
-    VERSION=$(get_current_version)
+    # Get current version (ensures CLI and server are in sync)
+    VERSION=$(check_versions_in_sync)
     if [[ -z "$VERSION" ]]; then
-        print_error "Could not determine version from project"
+        print_error "Could not determine version"
         exit 1
     fi
 
