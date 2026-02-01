@@ -387,8 +387,15 @@ async fn get_pushes(
     State(state): State<AppState>,
     Query(query): Query<PushesQuery>,
 ) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    // Only return pushes sent after the device's last registration
     let pushes: Vec<PushRecord> = sqlx::query_as(
-        "SELECT id, device_token, apns_id, title, body, payload, sent_at FROM pushes WHERE device_token = ? ORDER BY sent_at DESC",
+        r#"
+        SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.sent_at
+        FROM pushes p
+        JOIN devices d ON p.device_token = d.device_token
+        WHERE p.device_token = ? AND p.sent_at >= d.updated_at
+        ORDER BY p.sent_at DESC
+        "#,
     )
     .bind(&query.device_token)
     .fetch_all(&state.db)
