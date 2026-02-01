@@ -20,8 +20,7 @@ print_error() { echo -e "${RED}✗ $1${NC}"; }
 print_info() { echo -e "${BLUE}→ $1${NC}"; }
 
 get_current_version() {
-    grep -m1 'MARKETING_VERSION' "$SCRIPT_DIR/psh.xcodeproj/project.pbxproj" | \
-        sed 's/.*= *\([^;]*\);.*/\1/' | tr -d ' '
+    grep '^version' "$SCRIPT_DIR/server/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/'
 }
 
 get_last_tag() {
