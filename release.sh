@@ -25,6 +25,26 @@ get_cli_version() {
     grep '^version' "$SCRIPT_DIR/psh-cli/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/'
 }
 
+bump_version() {
+    local current="$1"
+    local bump_type="${2:-patch}"
+
+    IFS='.' read -r major minor patch <<< "$current"
+
+    case "$bump_type" in
+        major) major=$((major + 1)); minor=0; patch=0 ;;
+        minor) minor=$((minor + 1)); patch=0 ;;
+        patch) patch=$((patch + 1)) ;;
+    esac
+
+    echo "$major.$minor.$patch"
+}
+
+set_cli_version() {
+    local new_version="$1"
+    sed -i '' "s/^version = \".*\"/version = \"$new_version\"/" "$SCRIPT_DIR/psh-cli/Cargo.toml"
+}
+
 get_last_tag() {
     git describe --tags --abbrev=0 2>/dev/null || echo ""
 }
@@ -48,13 +68,12 @@ main() {
     fi
 
     # Get current version from CLI
-    VERSION=$(get_cli_version)
-    if [[ -z "$VERSION" ]]; then
+    CURRENT_VERSION=$(get_cli_version)
+    if [[ -z "$CURRENT_VERSION" ]]; then
         print_error "Could not determine version from psh-cli/Cargo.toml"
         exit 1
     fi
 
-    TAG="v$VERSION"
     LAST_TAG=$(get_last_tag)
 
     echo ""
@@ -63,13 +82,32 @@ main() {
     echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
     echo ""
 
-    print_info "Current version: $VERSION"
-    print_info "Tag to create: $TAG"
+    print_info "Current version: $CURRENT_VERSION"
     if [[ -n "$LAST_TAG" ]]; then
         print_info "Previous tag: $LAST_TAG"
     else
         print_warning "No previous tags found"
     fi
+
+    # Ask for bump type
+    echo ""
+    echo "Version bump type:"
+    echo "  1) patch ($(bump_version "$CURRENT_VERSION" patch))"
+    echo "  2) minor ($(bump_version "$CURRENT_VERSION" minor))"
+    echo "  3) major ($(bump_version "$CURRENT_VERSION" major))"
+    read -p "Select [1]: " bump_choice
+
+    case "$bump_choice" in
+        2) BUMP_TYPE="minor" ;;
+        3) BUMP_TYPE="major" ;;
+        *) BUMP_TYPE="patch" ;;
+    esac
+
+    VERSION=$(bump_version "$CURRENT_VERSION" "$BUMP_TYPE")
+    TAG="v$VERSION"
+
+    print_info "New version: $VERSION"
+    print_info "Tag to create: $TAG"
 
     # Check if tag already exists
     if git rev-parse "$TAG" >/dev/null 2>&1; then
@@ -88,21 +126,29 @@ main() {
     echo ""
 
     # Confirm
-    read -p "Create tag and upload to TestFlight? [y/N] " confirm
+    read -p "Bump version, create tag, and upload to TestFlight? [y/N] " confirm
     if [[ ! "$confirm" =~ ^[Yy] ]]; then
         echo "Cancelled."
         exit 0
     fi
+
+    # Bump version in Cargo.toml
+    print_info "Bumping version to $VERSION..."
+    set_cli_version "$VERSION"
+    git add "$SCRIPT_DIR/psh-cli/Cargo.toml"
+    git commit -m "Bump version to $VERSION"
+    print_success "Committed version bump"
 
     # Create tag
     print_info "Creating tag $TAG..."
     git tag -a "$TAG" -m "Release $VERSION"
     print_success "Created tag $TAG"
 
-    # Push tag
-    print_info "Pushing tag to remote..."
+    # Push commit and tag
+    print_info "Pushing to remote..."
+    git push origin HEAD
     git push origin "$TAG"
-    print_success "Pushed tag to remote"
+    print_success "Pushed commit and tag to remote"
 
     # Run fastlane beta with changelog
     print_info "Building and uploading to TestFlight..."
