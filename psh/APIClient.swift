@@ -55,6 +55,72 @@ struct PushesResponse: Decodable {
     let pushes: [ServerPush]
 }
 
+enum SoundConfig: Encodable {
+    case simple(String)
+    case critical(name: String, volume: Double?)
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .simple(let name):
+            var container = encoder.singleValueContainer()
+            try container.encode(name)
+        case .critical(let name, let volume):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(name, forKey: .name)
+            try container.encode(1, forKey: .critical)
+            if let volume = volume {
+                try container.encode(volume, forKey: .volume)
+            }
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, critical, volume
+    }
+}
+
+struct SendRequest: Encodable {
+    var title: String?
+    var subtitle: String?
+    var body: String?
+    var badge: Int?
+    var sound: SoundConfig?
+    var contentAvailable: Bool?
+    var mutableContent: Bool?
+    var category: String?
+    var priority: Int?
+    var collapseId: String?
+    var expiration: Int?
+    var data: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case title, subtitle, body, badge, sound, category, priority, expiration, data
+        case contentAvailable = "content_available"
+        case mutableContent = "mutable_content"
+        case collapseId = "collapse_id"
+    }
+}
+
+struct SendResponse: Decodable {
+    let success: Bool
+    let sent: Int
+    let failed: Int
+}
+
+struct StatsResponse: Decodable {
+    let totalDevices: Int
+    let sandboxDevices: Int
+    let productionDevices: Int
+    let totalPushes: Int
+
+    enum CodingKeys: String, CodingKey {
+        case totalDevices = "total_devices"
+        case sandboxDevices = "sandbox_devices"
+        case productionDevices = "production_devices"
+        case totalPushes = "total_pushes"
+    }
+}
+
 final class APIClient: Sendable {
     static let shared = APIClient()
 
@@ -145,11 +211,39 @@ final class APIClient: Sendable {
 
         return try JSONDecoder().decode(PushesResponse.self, from: data).pushes
     }
+
+    func sendNotification(_ request: SendRequest) async throws -> SendResponse {
+        var urlRequest = URLRequest(url: baseURL.appendingPathComponent("send"))
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let encoder = JSONEncoder()
+        urlRequest.httpBody = try encoder.encode(request)
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.sendFailed
+        }
+
+        return try JSONDecoder().decode(SendResponse.self, from: data)
+    }
+
+    func fetchStats() async throws -> StatsResponse {
+        let (data, response) = try await URLSession.shared.data(from: baseURL.appendingPathComponent("stats"))
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.fetchFailed
+        }
+
+        return try JSONDecoder().decode(StatsResponse.self, from: data)
+    }
 }
 
 enum APIError: Error, LocalizedError {
     case registrationFailed
     case fetchFailed
+    case sendFailed
     case serverError(String)
 
     var errorDescription: String? {
@@ -157,7 +251,9 @@ enum APIError: Error, LocalizedError {
         case .registrationFailed:
             return "Failed to register device"
         case .fetchFailed:
-            return "Failed to fetch pushes"
+            return "Failed to fetch data"
+        case .sendFailed:
+            return "Failed to send notification"
         case .serverError(let message):
             return message
         }
