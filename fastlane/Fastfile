@@ -3,7 +3,7 @@ default_platform(:ios)
 # Parse Config.xcconfig to get project settings
 def load_xcconfig
   config = {}
-  File.readlines("Config.xcconfig").each do |line|
+  File.readlines("../Config.xcconfig").each do |line|
     next if line.strip.start_with?("//") || line.strip.empty?
     if match = line.match(/^(\w+)\s*=\s*(.+)$/)
       config[match[1].strip] = match[2].strip
