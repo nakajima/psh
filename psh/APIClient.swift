@@ -40,6 +40,7 @@ struct ServerPush: Decodable, Identifiable, Hashable {
     let title: String?
     let body: String?
     let payload: String?
+    let interruptionLevel: String?
     let sentAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +48,7 @@ struct ServerPush: Decodable, Identifiable, Hashable {
         case deviceToken = "device_token"
         case apnsId = "apns_id"
         case title, body, payload
+        case interruptionLevel = "interruption_level"
         case sentAt = "sent_at"
     }
 }
@@ -61,6 +63,7 @@ struct ServerPushDetail: Decodable {
     let title: String?
     let body: String?
     let payload: String?
+    let interruptionLevel: String?
     let sentAt: String
     let deviceToken: String
     let deviceName: String?
@@ -71,6 +74,7 @@ struct ServerPushDetail: Decodable {
         case id
         case apnsId = "apns_id"
         case title, body, payload
+        case interruptionLevel = "interruption_level"
         case sentAt = "sent_at"
         case deviceToken = "device_token"
         case deviceName = "device_name"

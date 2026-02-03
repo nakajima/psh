@@ -150,6 +150,11 @@ main() {
     git push origin "$TAG"
     print_success "Pushed commit and tag to remote"
 
+    # Deploy server
+    print_info "Deploying server..."
+    ssh docker "cd psh && git pull && docker compose up server --build -d"
+    print_success "Server deployed"
+
     # Run fastlane beta with changelog
     print_info "Building and uploading to TestFlight..."
     cd "$SCRIPT_DIR"

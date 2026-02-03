@@ -79,6 +79,10 @@ struct NotificationRow: View {
         return !payload.isEmpty && payload != "null"
     }
 
+    private var isUrgent: Bool {
+        push.interruptionLevel == "time-sensitive" || push.interruptionLevel == "critical"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top) {
@@ -86,15 +90,25 @@ struct NotificationRow: View {
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)
+                } else if let body = push.body {
+                    Text(body)
+                        .font(.headline)
+                        .lineLimit(1)
                 }
                 Spacer()
+                if isUrgent {
+                    Text(push.interruptionLevel == "critical" ? "Critical" : "Time Sensitive")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(push.interruptionLevel == "critical" ? .red : .orange)
+                }
                 if let date = sentAtDate {
                     Text(date, style: .relative)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            if let body = push.body {
+            if push.title != nil, let body = push.body {
                 Text(body)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

@@ -148,6 +148,7 @@ struct PushRecord {
     title: Option<String>,
     body: Option<String>,
     payload: Option<String>,
+    interruption_level: Option<String>,
     sent_at: String,
 }
 
@@ -168,6 +169,7 @@ struct PushDetailRecord {
     title: Option<String>,
     body: Option<String>,
     payload: Option<String>,
+    interruption_level: Option<String>,
     sent_at: String,
     device_token: String,
     device_name: Option<String>,
@@ -356,8 +358,8 @@ async fn send_notification(
                 // Record the push
                 let _ = sqlx::query(
                     r#"
-                    INSERT INTO pushes (device_token, apns_id, title, body, payload)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO pushes (device_token, apns_id, title, body, payload, interruption_level)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&device_token)
@@ -365,6 +367,7 @@ async fn send_notification(
                 .bind(&req.title)
                 .bind(&req.body)
                 .bind(&payload_json)
+                .bind(&req.interruption_level)
                 .execute(&state.db)
                 .await;
 
@@ -448,7 +451,7 @@ async fn get_pushes(
 
     let pushes: Vec<PushRecord> = sqlx::query_as(
         r#"
-        SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.sent_at
+        SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.interruption_level, p.sent_at
         FROM pushes p
         JOIN devices d ON p.device_token = d.device_token
         WHERE d.installation_id = ?
@@ -483,7 +486,7 @@ async fn get_push_detail(
     let push: Option<PushDetailRecord> = sqlx::query_as(
         r#"
         SELECT
-            p.id, p.apns_id, p.title, p.body, p.payload, p.sent_at, p.device_token,
+            p.id, p.apns_id, p.title, p.body, p.payload, p.interruption_level, p.sent_at, p.device_token,
             d.device_name, d.device_type, d.environment
         FROM pushes p
         LEFT JOIN devices d ON p.device_token = d.device_token
@@ -540,6 +543,10 @@ async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     // Add installation_id column if it doesn't exist (migration for existing DBs)
     let _ = sqlx::query("ALTER TABLE devices ADD COLUMN installation_id TEXT")
+        .execute(pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE pushes ADD COLUMN interruption_level TEXT")
         .execute(pool)
         .await;
 
@@ -710,6 +717,7 @@ mod tests {
                 title: Some("Test Title".to_string()),
                 body: Some("Test Body".to_string()),
                 payload: None,
+                interruption_level: None,
                 sent_at: "2024-01-01 12:00:00".to_string(),
             },
             PushRecord {
@@ -719,6 +727,7 @@ mod tests {
                 title: None,
                 body: Some("Body only".to_string()),
                 payload: Some(r#"{"key":"value"}"#.to_string()),
+                interruption_level: Some("time-sensitive".to_string()),
                 sent_at: "2024-01-02 12:00:00".to_string(),
             },
         ];
@@ -751,6 +760,7 @@ mod tests {
             title: Some("Test Title".to_string()),
             body: Some("Test Body".to_string()),
             payload: Some(r#"{"key":"value"}"#.to_string()),
+            interruption_level: Some("time-sensitive".to_string()),
             sent_at: "2024-01-01 12:00:00".to_string(),
             device_token: "abc123".to_string(),
             device_name: Some("John's iPhone".to_string()),
