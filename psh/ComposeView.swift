@@ -144,7 +144,11 @@ struct ComposeView: View {
                     .disabled(isSending || (title.isEmpty && bodyText.isEmpty))
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle("Compose")
+            #if os(macOS)
+            .contentMargins(.horizontal, 80, for: .scrollContent)
+            #endif
             .alert(resultSuccess ? "Success" : "Error", isPresented: $showingResult) {
                 Button("OK", role: .cancel) {}
             } message: {
