@@ -33,7 +33,7 @@ struct RegisterResponse: Decodable {
     let message: String
 }
 
-struct ServerPush: Decodable, Identifiable {
+struct ServerPush: Decodable, Identifiable, Hashable {
     let id: Int64
     let deviceToken: String
     let apnsId: String?
@@ -53,6 +53,30 @@ struct ServerPush: Decodable, Identifiable {
 
 struct PushesResponse: Decodable {
     let pushes: [ServerPush]
+}
+
+struct ServerPushDetail: Decodable {
+    let id: Int64
+    let apnsId: String?
+    let title: String?
+    let body: String?
+    let payload: String?
+    let sentAt: String
+    let deviceToken: String
+    let deviceName: String?
+    let deviceType: String?
+    let environment: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case apnsId = "apns_id"
+        case title, body, payload
+        case sentAt = "sent_at"
+        case deviceToken = "device_token"
+        case deviceName = "device_name"
+        case deviceType = "device_type"
+        case environment
+    }
 }
 
 enum SoundConfig: Encodable {
@@ -210,6 +234,17 @@ final class APIClient: Sendable {
         }
 
         return try JSONDecoder().decode(PushesResponse.self, from: data).pushes
+    }
+
+    func fetchPushDetail(id: Int64) async throws -> ServerPushDetail {
+        let url = baseURL.appendingPathComponent("pushes/\(id)")
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw APIError.fetchFailed
+        }
+
+        return try JSONDecoder().decode(ServerPushDetail.self, from: data)
     }
 
     func sendNotification(_ request: SendRequest) async throws -> SendResponse {

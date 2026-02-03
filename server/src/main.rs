@@ -159,6 +159,20 @@ struct PushesQuery {
     installation_id: String,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+struct PushDetailRecord {
+    id: i64,
+    apns_id: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
+    payload: Option<String>,
+    sent_at: String,
+    device_token: String,
+    device_name: Option<String>,
+    device_type: Option<String>,
+    environment: Option<String>,
+}
+
 async fn register_device(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
@@ -416,6 +430,45 @@ async fn get_pushes(
     Ok(Json(PushesResponse { pushes }))
 }
 
+async fn get_push_detail(
+    State(state): State<AppState>,
+    axum::extract::Path(push_id): axum::extract::Path<i64>,
+) -> Result<Json<PushDetailRecord>, (StatusCode, Json<ErrorResponse>)> {
+    let push: Option<PushDetailRecord> = sqlx::query_as(
+        r#"
+        SELECT
+            p.id, p.apns_id, p.title, p.body, p.payload, p.sent_at, p.device_token,
+            d.device_name, d.device_type, d.environment
+        FROM pushes p
+        LEFT JOIN devices d ON p.device_token = d.device_token
+        WHERE p.id = ?
+        "#,
+    )
+    .bind(push_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                success: false,
+                error: format!("Database error: {}", e),
+            }),
+        )
+    })?;
+
+    match push {
+        Some(p) => Ok(Json(p)),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                success: false,
+                error: "Push not found".to_string(),
+            }),
+        )),
+    }
+}
+
 async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -484,9 +537,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let app = Router::new()
-        .route("/", get(|| async { "OK" }))
+        .route("/", get(|| async { format!("OK {}", env!("GIT_HASH")) }))
         .route("/stats", get(get_stats))
         .route("/pushes", get(get_pushes))
+        .route("/pushes/:id", get(get_push_detail))
         .route("/register", post(register_device))
         .route("/send", post(send_notification))
         .with_state(state);
@@ -619,5 +673,28 @@ mod tests {
         let json = r#"{"installation_id": "uuid-install-1"}"#;
         let parsed: PushesQuery = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.installation_id, "uuid-install-1");
+    }
+
+    #[test]
+    fn test_serialize_push_detail_record() {
+        let detail = PushDetailRecord {
+            id: 1,
+            apns_id: Some("apns-uuid-1".to_string()),
+            title: Some("Test Title".to_string()),
+            body: Some("Test Body".to_string()),
+            payload: Some(r#"{"key":"value"}"#.to_string()),
+            sent_at: "2024-01-01 12:00:00".to_string(),
+            device_token: "abc123".to_string(),
+            device_name: Some("John's iPhone".to_string()),
+            device_type: Some("iPhone".to_string()),
+            environment: Some("sandbox".to_string()),
+        };
+        let json = serde_json::to_string(&detail).unwrap();
+
+        assert!(json.contains("\"id\":1"));
+        assert!(json.contains("\"apns_id\":\"apns-uuid-1\""));
+        assert!(json.contains("\"device_name\":\"John's iPhone\""));
+        assert!(json.contains("\"device_type\":\"iPhone\""));
+        assert!(json.contains("\"environment\":\"sandbox\""));
     }
 }
