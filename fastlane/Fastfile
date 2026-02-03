@@ -1,17 +1,5 @@
 default_platform(:ios)
 
-# Parse Config.xcconfig to get project settings
-def load_xcconfig
-  config = {}
-  File.readlines("../Config.xcconfig").each do |line|
-    next if line.strip.start_with?("//") || line.strip.empty?
-    if match = line.match(/^(\w+)\s*=\s*(.+)$/)
-      config[match[1].strip] = match[2].strip
-    end
-  end
-  config
-end
-
 platform :ios do
   desc "Run tests"
   lane :test do
@@ -25,14 +13,19 @@ platform :ios do
 
   desc "Build and upload to TestFlight"
   lane :beta do |options|
-    config = load_xcconfig
-    bundle_id = config["PSH_BUNDLE_IDENTIFIER"]
-    provisioning_profile = config["PSH_PROVISIONING_PROFILE"]
-
     increment_build_number(
       build_number: Time.now.strftime("%Y%m%d%H%M"),
       xcodeproj: "psh.xcodeproj"
     )
+
+    # Load API key info for build authentication
+    api_key_json = JSON.parse(File.read("api_key.json"))
+    auth_key_path = File.expand_path("AuthKey.p8")
+
+    xcargs = "-allowProvisioningUpdates"
+    xcargs += " -authenticationKeyID #{api_key_json['key_id']}"
+    xcargs += " -authenticationKeyIssuerID #{api_key_json['issuer_id']}"
+    xcargs += " -authenticationKeyPath '#{auth_key_path}'"
 
     build_app(
       project: "psh.xcodeproj",
@@ -41,11 +34,7 @@ platform :ios do
       destination: "generic/platform=iOS",
       clean: true,
       export_method: "app-store",
-      export_options: {
-        provisioningProfiles: {
-          bundle_id => provisioning_profile
-        }
-      }
+      xcargs: xcargs
     )
 
     changelog = options[:changelog] || "Bug fixes and improvements"

@@ -5,6 +5,7 @@ vendor/
 .envrc
 .setup-complete
 Config.xcconfig
+*.p8
 
 # Fastlane
 fastlane/api_key.json

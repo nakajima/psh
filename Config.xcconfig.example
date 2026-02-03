@@ -3,4 +3,3 @@
 
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
 PSH_BUNDLE_IDENTIFIER = com.yourcompany.psh
-PSH_PROVISIONING_PROFILE = Your App Store Profile Name
