@@ -152,7 +152,7 @@ main() {
 
     # Deploy server
     print_info "Deploying server..."
-    ssh docker "cd psh && git pull && docker compose up server --build -d"
+    ssh root@docker "cd psh && git pull && docker compose up server --build -d"
     print_success "Server deployed"
 
     # Run fastlane beta with changelog
