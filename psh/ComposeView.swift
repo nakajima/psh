@@ -22,6 +22,9 @@ struct ComposeView: View {
     @State private var contentAvailable = false
     @State private var mutableContent = false
     @State private var category = ""
+    @State private var interruptionLevel = "active"
+    @State private var useRelevanceScore = false
+    @State private var relevanceScore: Double = 0.5
 
     // Delivery section
     @State private var priorityText = ""
@@ -69,6 +72,19 @@ struct ComposeView: View {
                     Toggle("Content Available", isOn: $contentAvailable)
                     Toggle("Mutable Content", isOn: $mutableContent)
                     TextField("Category", text: $category)
+                    Picker("Interruption Level", selection: $interruptionLevel) {
+                        Text("Passive").tag("passive")
+                        Text("Active").tag("active")
+                        Text("Time Sensitive").tag("time-sensitive")
+                        Text("Critical").tag("critical")
+                    }
+                    Toggle("Relevance Score", isOn: $useRelevanceScore)
+                    if useRelevanceScore {
+                        VStack(alignment: .leading) {
+                            Text("Score: \(relevanceScore, specifier: "%.2f")")
+                            Slider(value: $relevanceScore, in: 0...1, step: 0.05)
+                        }
+                    }
                 }
 
                 Section("Delivery") {
@@ -168,6 +184,8 @@ struct ComposeView: View {
         }
 
         if !collapseId.isEmpty { request.collapseId = collapseId }
+        if interruptionLevel != "active" { request.interruptionLevel = interruptionLevel }
+        if useRelevanceScore { request.relevanceScore = relevanceScore }
 
         if let expiration = Int(expirationText), expiration > 0 {
             request.expiration = expiration
@@ -209,6 +227,9 @@ struct ComposeView: View {
         priorityText = ""
         collapseId = ""
         expirationText = ""
+        interruptionLevel = "active"
+        useRelevanceScore = false
+        relevanceScore = 0.5
         customData = []
     }
 }

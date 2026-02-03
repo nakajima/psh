@@ -87,6 +87,8 @@ struct SendRequest {
     content_available: Option<bool>,
     mutable_content: Option<bool>,
     category: Option<String>,
+    interruption_level: Option<String>,
+    relevance_score: Option<f64>,
 
     // Delivery options
     priority: Option<u8>,
@@ -177,6 +179,14 @@ async fn register_device(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    tracing::info!(
+        device_token = %req.device_token,
+        installation_id = %req.installation_id,
+        environment = %req.environment.as_str(),
+        device_name = ?req.device_name,
+        "Registering device"
+    );
+
     let result = sqlx::query(
         r#"
         INSERT INTO devices (device_token, installation_id, environment, device_name, device_type, os_version, app_version, updated_at)
@@ -202,17 +212,23 @@ async fn register_device(
     .await;
 
     match result {
-        Ok(_) => Ok(Json(RegisterResponse {
-            success: true,
-            message: "Device registered successfully".to_string(),
-        })),
-        Err(e) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                success: false,
-                error: format!("Failed to register device: {}", e),
-            }),
-        )),
+        Ok(_) => {
+            tracing::info!(device_token = %req.device_token, "Device registered");
+            Ok(Json(RegisterResponse {
+                success: true,
+                message: "Device registered successfully".to_string(),
+            }))
+        }
+        Err(e) => {
+            tracing::error!(device_token = %req.device_token, error = %e, "Failed to register device");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    success: false,
+                    error: format!("Failed to register device: {}", e),
+                }),
+            ))
+        }
     }
 }
 
@@ -227,8 +243,11 @@ async fn send_notification(
         .map(|s| s.contains("application/json"))
         .unwrap_or(false);
 
+    tracing::info!(is_json = is_json, body_len = body.len(), "Received send request");
+
     let req: SendRequest = if is_json {
         serde_json::from_slice(&body).map_err(|e| {
+            tracing::warn!(error = %e, "Invalid JSON in send request");
             (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
@@ -257,6 +276,8 @@ async fn send_notification(
             content_available: None,
             mutable_content: None,
             category: None,
+            interruption_level: None,
+            relevance_score: None,
             priority: None,
             collapse_id: None,
             expiration: None,
@@ -264,12 +285,21 @@ async fn send_notification(
         }
     };
 
+    tracing::debug!(
+        title = ?req.title,
+        body = ?req.body,
+        interruption_level = ?req.interruption_level,
+        relevance_score = ?req.relevance_score,
+        "Parsed send request"
+    );
+
     // Fetch all devices
     let devices: Vec<(String, String)> =
         sqlx::query_as("SELECT device_token, environment FROM devices")
             .fetch_all(&state.db)
             .await
             .map_err(|e| {
+                tracing::error!(error = %e, "Database error fetching devices");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(ErrorResponse {
@@ -279,7 +309,10 @@ async fn send_notification(
                 )
             })?;
 
+    tracing::info!(device_count = devices.len(), "Found devices to notify");
+
     if devices.is_empty() {
+        tracing::warn!("No devices registered, nothing to send");
         return Err((
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -300,6 +333,7 @@ async fn send_notification(
         let environment = match Environment::try_from(env_str.as_str()) {
             Ok(env) => env,
             Err(_) => {
+                tracing::error!(device_token = %device_token, env = %env_str, "Invalid environment in database");
                 results.push(DeviceSendResult {
                     device_token,
                     success: false,
@@ -311,11 +345,14 @@ async fn send_notification(
             }
         };
 
+        tracing::debug!(device_token = %device_token, environment = %env_str, "Sending to device");
+
         match apns_clients
             .send_notification(&device_token, &req, environment)
             .await
         {
             Ok(apns_id) => {
+                tracing::info!(device_token = %device_token, apns_id = %apns_id, "Push sent");
                 // Record the push
                 let _ = sqlx::query(
                     r#"
@@ -340,6 +377,7 @@ async fn send_notification(
                 sent += 1;
             }
             Err(e) => {
+                tracing::error!(device_token = %device_token, error = %e, "Push failed");
                 results.push(DeviceSendResult {
                     device_token,
                     success: false,
@@ -350,6 +388,8 @@ async fn send_notification(
             }
         }
     }
+
+    tracing::info!(sent = sent, failed = failed, "Send complete");
 
     Ok(Json(SendResponse {
         success: sent > 0,
@@ -404,7 +444,8 @@ async fn get_pushes(
     State(state): State<AppState>,
     Query(query): Query<PushesQuery>,
 ) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Return pushes for devices matching the installation_id
+    tracing::debug!(installation_id = %query.installation_id, "Fetching pushes");
+
     let pushes: Vec<PushRecord> = sqlx::query_as(
         r#"
         SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.sent_at
@@ -418,6 +459,7 @@ async fn get_pushes(
     .fetch_all(&state.db)
     .await
     .map_err(|e| {
+        tracing::error!(error = %e, "Database error fetching pushes");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -427,6 +469,8 @@ async fn get_pushes(
         )
     })?;
 
+    tracing::debug!(count = pushes.len(), "Returning pushes");
+
     Ok(Json(PushesResponse { pushes }))
 }
 
@@ -434,6 +478,8 @@ async fn get_push_detail(
     State(state): State<AppState>,
     axum::extract::Path(push_id): axum::extract::Path<i64>,
 ) -> Result<Json<PushDetailRecord>, (StatusCode, Json<ErrorResponse>)> {
+    tracing::debug!(push_id = push_id, "Fetching push detail");
+
     let push: Option<PushDetailRecord> = sqlx::query_as(
         r#"
         SELECT
@@ -448,6 +494,7 @@ async fn get_push_detail(
     .fetch_optional(&state.db)
     .await
     .map_err(|e| {
+        tracing::error!(push_id = push_id, error = %e, "Database error fetching push detail");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -459,13 +506,16 @@ async fn get_push_detail(
 
     match push {
         Some(p) => Ok(Json(p)),
-        None => Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                success: false,
-                error: "Push not found".to_string(),
-            }),
-        )),
+        None => {
+            tracing::warn!(push_id = push_id, "Push not found");
+            Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    success: false,
+                    error: "Push not found".to_string(),
+                }),
+            ))
+        }
     }
 }
 
@@ -521,6 +571,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data.db".to_string());
+    tracing::info!(database_url = %database_url, "Connecting to database");
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -528,8 +579,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     init_db(&pool).await?;
+    tracing::info!("Database initialized");
 
     let apns_clients = ApnsClients::new()?;
+    tracing::info!("APNs clients initialized");
 
     let state = AppState {
         db: pool,
@@ -619,6 +672,21 @@ mod tests {
             Some(SoundConfig::Critical { name, critical: Some(true), volume: Some(v) })
             if name == "alert.caf" && (v - 0.8).abs() < f64::EPSILON
         ));
+    }
+
+    #[test]
+    fn test_deserialize_send_request_with_interruption_level() {
+        let json = r#"{
+            "title": "Hello",
+            "interruption_level": "time-sensitive",
+            "relevance_score": 0.75
+        }"#;
+        let req: SendRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            req.interruption_level,
+            Some("time-sensitive".to_string())
+        );
+        assert!((req.relevance_score.unwrap() - 0.75).abs() < f64::EPSILON);
     }
 
     #[test]

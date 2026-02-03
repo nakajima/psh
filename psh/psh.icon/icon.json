@@ -1,0 +1,67 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "extended-gray:0.08263,1.00000",
+      "extended-gray:0.00000,1.00000"
+    ],
+    "orientation" : {
+      "start" : {
+        "x" : 0.5,
+        "y" : 0
+      },
+      "stop" : {
+        "x" : 0.5,
+        "y" : 0.7
+      }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "linear-gradient" : [
+              "display-p3:0.89942,0.87083,0.76937,1.00000",
+              "srgb:0.99966,0.96622,0.86283,1.00000"
+            ],
+            "orientation" : {
+              "start" : {
+                "x" : 0.5,
+                "y" : 1
+              },
+              "stop" : {
+                "x" : 0.5,
+                "y" : 0.3
+              }
+            }
+          },
+          "glass" : false,
+          "image-name" : "pshicon.png",
+          "name" : "pshicon",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -1.546875,
+              -18
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

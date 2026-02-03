@@ -115,6 +115,8 @@ struct SendRequest: Encodable {
     var priority: Int?
     var collapseId: String?
     var expiration: Int?
+    var interruptionLevel: String?
+    var relevanceScore: Double?
     var data: [String: String]?
 
     enum CodingKeys: String, CodingKey {
@@ -122,6 +124,8 @@ struct SendRequest: Encodable {
         case contentAvailable = "content_available"
         case mutableContent = "mutable_content"
         case collapseId = "collapse_id"
+        case interruptionLevel = "interruption_level"
+        case relevanceScore = "relevance_score"
     }
 }
 
