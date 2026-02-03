@@ -2,6 +2,8 @@ FROM rust:latest AS builder
 
 WORKDIR /app
 
+ARG GIT_HASH=unknown
+
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -12,7 +14,8 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release && rm -rf src
 
 COPY server/src ./src
-RUN touch src/main.rs && cargo build --release
+COPY server/build.rs ./
+RUN touch src/main.rs && GIT_HASH=$GIT_HASH cargo build --release
 
 FROM debian:bookworm-slim
 
