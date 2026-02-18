@@ -1,17 +1,14 @@
 # psh
 
-`psh` is a push notification playground for Apple platforms:
+`psh` lets you send a push to all of your apple devices. I wanted to use ntfy but apns is weird and claude exists.
 
-- A SwiftUI app (`psh/`) that registers for APNs and displays received notifications
-- A Rust server (`server/`) that stores devices and sends APNs notifications
-- A Rust CLI (`psh-cli/`) to send pushes and inspect server stats
+it has no auth whatsoever. use tailscale i guess.
 
-## Project Layout
+it consists of:
 
-- `psh/`: iOS/macOS app
-- `server/`: APNs HTTP server (Axum + SQLite)
-- `psh-cli/`: command-line client (`psh`)
-- `fastlane/`: iOS test/build lanes
+- a SwiftUI app (`psh/`) that registers for APNs and displays received notifications
+- a Rust server (`server/`) that stores devices and sends APNs notifications
+- an optional Rust CLI (`psh-cli/`) to send pushes and inspect server stats
 
 ## Prerequisites
 
