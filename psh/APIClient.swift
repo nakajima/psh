@@ -5,7 +5,7 @@
 
 import Foundation
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 struct RegisterRequest: Encodable {
@@ -89,10 +89,10 @@ enum SoundConfig: Encodable {
 
     func encode(to encoder: Encoder) throws {
         switch self {
-        case .simple(let name):
+        case let .simple(name):
             var container = encoder.singleValueContainer()
             try container.encode(name)
-        case .critical(let name, let volume):
+        case let .critical(name, volume):
             var container = encoder.container(keyedBy: CodingKeys.self)
             try container.encode(name, forKey: .name)
             try container.encode(1, forKey: .critical)
@@ -161,7 +161,7 @@ final class APIClient: Sendable {
 
     let baseURL: URL
 
-    init(baseURL: URL = URL(string: "https://psh.fishmt.net")!) {
+    init(baseURL: URL = URL(string: "https://psh")!) {
         self.baseURL = baseURL
     }
 
@@ -183,22 +183,22 @@ final class APIClient: Sendable {
         UserDefaults.standard.set(tokenString, forKey: Self.deviceTokenKey)
 
         #if DEBUG
-        let environment = "sandbox"
+            let environment = "sandbox"
         #else
-        let environment = "production"
+            let environment = "production"
         #endif
 
         var deviceName: String?
         var deviceType: String?
 
         #if canImport(UIKit) && !os(watchOS)
-        await MainActor.run {
-            deviceName = UIDevice.current.name
-            deviceType = UIDevice.current.model
-        }
+            await MainActor.run {
+                deviceName = UIDevice.current.name
+                deviceType = UIDevice.current.model
+            }
         #elseif os(macOS)
-        deviceName = Host.current().localizedName
-        deviceType = "Mac"
+            deviceName = Host.current().localizedName
+            deviceType = "Mac"
         #endif
 
         let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
@@ -297,7 +297,7 @@ enum APIError: Error, LocalizedError {
             return "Failed to fetch data"
         case .sendFailed:
             return "Failed to send notification"
-        case .serverError(let message):
+        case let .serverError(message):
             return message
         }
     }
