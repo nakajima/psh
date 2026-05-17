@@ -40,7 +40,7 @@ cargo run
 
 Server listens on `http://localhost:3000`.
 
-### 3) Use the CLI in `psh-cli/
+### 3) Use the CLI in `psh-cli/`
 
 ```bash
 cargo run --server http://localhost:3000 ping
@@ -69,13 +69,114 @@ APNS_TOPIC=your.bundle.id \
 docker compose up --build server
 ```
 
-## API Endpoints
+## Curl API
 
-- `POST /register`: register/update a device token
-- `POST /send`: send a push to all registered devices
-- `GET /stats`: device/push counters
-- `GET /pushes?installation_id=...`: push history for an installation
-- `GET /pushes/:id`: detailed push record
+The server has no auth. Put it behind a private network or proxy you trust.
+
+```bash
+export PSH=http://localhost:3000
+```
+
+### Health check
+
+```bash
+curl "$PSH/"
+```
+
+### Send a push
+
+Plain curl bodies are treated as the notification body and sent to every registered device:
+
+```bash
+curl -X POST "$PSH/send" \
+  --data 'hello from curl'
+```
+
+For APNs options, send JSON:
+
+```bash
+curl -X POST "$PSH/send" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Hello",
+    "body": "From curl",
+    "sound": "default",
+    "badge": 1,
+    "interruption_level": "time-sensitive",
+    "data": {"url": "psh://example"}
+  }'
+```
+
+`/send` accepts these JSON fields:
+
+- alert: `title`, `subtitle`, `body`, `launch_image`
+- localization: `title_loc_key`, `title_loc_args`, `loc_key`, `loc_args`
+- badge/sound: `badge`, `sound` (`"default"` or `{ "name": "alert.caf", "critical": true, "volume": 0.8 }`)
+- behavior: `content_available`, `mutable_content`, `category`, `interruption_level`, `relevance_score`
+- delivery: `priority` (1-5 normal, 6+ high), `collapse_id`, `expiration` (Unix timestamp)
+- custom payload keys: `data` object
+
+Response:
+
+```json
+{
+  "success": true,
+  "sent": 1,
+  "failed": 0,
+  "results": [
+    {
+      "device_token": "...",
+      "success": true,
+      "apns_id": "...",
+      "error": null
+    }
+  ]
+}
+```
+
+### Register a device
+
+The app normally calls this after APNs registration, but it can be called directly:
+
+```bash
+curl -X POST "$PSH/register" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "device_token": "apns-device-token",
+    "installation_id": "device-installation-uuid",
+    "environment": "sandbox",
+    "device_name": "My iPhone",
+    "device_type": "iPhone",
+    "os_version": "iOS 18.0",
+    "app_version": "1.0"
+  }'
+```
+
+Required fields are `device_token`, `installation_id`, and `environment` (`sandbox` or `production`).
+
+### Stats
+
+```bash
+curl "$PSH/stats"
+```
+
+```json
+{
+  "total_devices": 1,
+  "sandbox_devices": 1,
+  "production_devices": 0,
+  "total_pushes": 12
+}
+```
+
+### Push history
+
+```bash
+curl "$PSH/pushes?installation_id=device-installation-uuid"
+curl "$PSH/pushes/1"
+```
+
+`GET /pushes?installation_id=...` returns `{ "pushes": [...] }`. `GET /pushes/:id` returns one detailed push record.
 
 ## Development Commands
 
