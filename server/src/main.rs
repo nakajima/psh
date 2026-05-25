@@ -1,12 +1,12 @@
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
+use seekwel::{connection::Connection, error::Error as SeekwelError, rusqlite::params};
 use serde::{Deserialize, Serialize};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::{collections::HashMap, env, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -16,8 +16,369 @@ use apns::ApnsClients;
 
 #[derive(Clone)]
 struct AppState {
-    db: SqlitePool,
     apns: Arc<RwLock<ApnsClients>>,
+}
+
+struct Database;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DatabaseLocation {
+    Memory,
+    File(String),
+}
+
+#[derive(Debug)]
+struct DeviceTarget {
+    id: i64,
+    device_token: String,
+    environment: String,
+}
+
+impl Database {
+    fn initialize(database_url: &str) -> Result<(), SeekwelError> {
+        match Self::location_from_url(database_url) {
+            DatabaseLocation::Memory => match Connection::memory() {
+                Ok(()) | Err(SeekwelError::AlreadyInitialized) => {}
+                Err(error) => return Err(error),
+            },
+            DatabaseLocation::File(path) => match Connection::file(&path) {
+                Ok(()) | Err(SeekwelError::AlreadyInitialized) => {}
+                Err(error) => return Err(error),
+            },
+        }
+
+        let conn = Connection::get()?;
+        conn.execute("PRAGMA foreign_keys = ON", ())?;
+        Connection::transaction(|| {
+            Self::migrate_devices(&conn)?;
+            Self::migrate_pushes(&conn)?;
+            Self::create_schema(&conn)
+        })
+    }
+
+    fn location_from_url(database_url: &str) -> DatabaseLocation {
+        let mut value = database_url
+            .strip_prefix("sqlite:")
+            .unwrap_or(database_url)
+            .split('?')
+            .next()
+            .unwrap_or(database_url);
+        if let Some(path) = value.strip_prefix("//") {
+            value = path;
+        }
+
+        if value == ":memory:" {
+            DatabaseLocation::Memory
+        } else {
+            DatabaseLocation::File(value.to_string())
+        }
+    }
+
+    fn create_schema(conn: &Connection) -> Result<(), SeekwelError> {
+        Self::create_devices_table(conn)?;
+        Self::create_pushes_table(conn)?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_devices_installation_id ON devices(installation_id)",
+            (),
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pushes_device_id_sent_at ON pushes(device_id, sent_at DESC)",
+            (),
+        )?;
+        Ok(())
+    }
+
+    fn create_devices_table(conn: &Connection) -> Result<(), SeekwelError> {
+        conn.execute(
+            r#"
+            CREATE TABLE IF NOT EXISTS devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_token TEXT NOT NULL UNIQUE,
+                installation_id TEXT,
+                environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
+                device_name TEXT,
+                device_type TEXT,
+                os_version TEXT,
+                app_version TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+            (),
+        )?;
+        Ok(())
+    }
+
+    fn create_pushes_table(conn: &Connection) -> Result<(), SeekwelError> {
+        conn.execute(
+            r#"
+            CREATE TABLE IF NOT EXISTS pushes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+                apns_id TEXT,
+                title TEXT,
+                body TEXT,
+                payload TEXT,
+                interruption_level TEXT,
+                sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+            (),
+        )?;
+        Ok(())
+    }
+
+    fn migrate_devices(conn: &Connection) -> Result<(), SeekwelError> {
+        if !Self::table_exists(conn, "devices")? {
+            return Self::create_devices_table(conn);
+        }
+
+        if Self::column_exists(conn, "devices", "id")? {
+            return Ok(());
+        }
+
+        let legacy_columns = [
+            "installation_id",
+            "device_name",
+            "device_type",
+            "os_version",
+            "app_version",
+            "created_at",
+            "updated_at",
+        ];
+        for column in legacy_columns {
+            if !Self::column_exists(conn, "devices", column)? {
+                let _ = conn.execute(&format!("ALTER TABLE devices ADD COLUMN {column} TEXT"), ());
+            }
+        }
+
+        conn.execute("DROP TABLE IF EXISTS devices_old", ())?;
+        conn.execute("ALTER TABLE devices RENAME TO devices_old", ())?;
+        Self::create_devices_table(conn)?;
+        conn.execute(
+            r#"
+            INSERT OR IGNORE INTO devices (
+                device_token,
+                installation_id,
+                environment,
+                device_name,
+                device_type,
+                os_version,
+                app_version,
+                created_at,
+                updated_at
+            )
+            SELECT
+                device_token,
+                installation_id,
+                environment,
+                device_name,
+                device_type,
+                os_version,
+                app_version,
+                COALESCE(created_at, CURRENT_TIMESTAMP),
+                COALESCE(updated_at, CURRENT_TIMESTAMP)
+            FROM devices_old
+            WHERE device_token IS NOT NULL
+              AND environment IN ('sandbox', 'production')
+            "#,
+            (),
+        )?;
+        conn.execute("DROP TABLE devices_old", ())?;
+        Ok(())
+    }
+
+    fn migrate_pushes(conn: &Connection) -> Result<(), SeekwelError> {
+        if Self::table_exists(conn, "pushes")? && !Self::column_exists(conn, "pushes", "device_id")?
+        {
+            conn.execute("DROP TABLE pushes", ())?;
+        }
+        Self::create_pushes_table(conn)
+    }
+
+    fn table_exists(conn: &Connection, table: &str) -> Result<bool, SeekwelError> {
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            params![table],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
+    }
+
+    fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, SeekwelError> {
+        let sql = format!("PRAGMA table_info({table})");
+        let columns: Vec<String> = conn.query_all(&sql, (), |row| row.get(1))?;
+        Ok(columns.iter().any(|name| name == column))
+    }
+
+    fn upsert_device(req: &RegisterRequest) -> Result<(), SeekwelError> {
+        Connection::get()?.execute(
+            r#"
+            INSERT INTO devices (
+                device_token,
+                installation_id,
+                environment,
+                device_name,
+                device_type,
+                os_version,
+                app_version,
+                updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
+            ON CONFLICT(device_token) DO UPDATE SET
+                installation_id = excluded.installation_id,
+                environment = excluded.environment,
+                device_name = excluded.device_name,
+                device_type = excluded.device_type,
+                os_version = excluded.os_version,
+                app_version = excluded.app_version,
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+            params![
+                req.device_token,
+                req.installation_id,
+                req.environment.as_str(),
+                req.device_name,
+                req.device_type,
+                req.os_version,
+                req.app_version
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn delivery_targets() -> Result<Vec<DeviceTarget>, SeekwelError> {
+        Connection::get()?.query_all(
+            "SELECT id, device_token, environment FROM devices ORDER BY id",
+            (),
+            |row| {
+                Ok(DeviceTarget {
+                    id: row.get(0)?,
+                    device_token: row.get(1)?,
+                    environment: row.get(2)?,
+                })
+            },
+        )
+    }
+
+    fn record_push(
+        device_id: i64,
+        apns_id: &str,
+        req: &SendRequest,
+        payload_json: Option<&str>,
+    ) -> Result<(), SeekwelError> {
+        Connection::get()?.execute(
+            r#"
+            INSERT INTO pushes (device_id, apns_id, title, body, payload, interruption_level)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "#,
+            params![
+                device_id,
+                apns_id,
+                req.title.as_deref(),
+                req.body.as_deref(),
+                payload_json,
+                req.interruption_level.as_deref()
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn stats() -> Result<StatsResponse, SeekwelError> {
+        let conn = Connection::get()?;
+        let total_devices = Self::count(&conn, "SELECT COUNT(*) FROM devices")?;
+        let sandbox_devices = Self::count(
+            &conn,
+            "SELECT COUNT(*) FROM devices WHERE environment = 'sandbox'",
+        )?;
+        let production_devices = Self::count(
+            &conn,
+            "SELECT COUNT(*) FROM devices WHERE environment = 'production'",
+        )?;
+        let total_pushes = Self::count(&conn, "SELECT COUNT(*) FROM pushes")?;
+
+        Ok(StatsResponse {
+            total_devices,
+            sandbox_devices,
+            production_devices,
+            total_pushes,
+        })
+    }
+
+    fn count(conn: &Connection, sql: &str) -> Result<i64, SeekwelError> {
+        conn.query_row(sql, (), |row| row.get(0))
+    }
+
+    fn pushes_for_installation(installation_id: &str) -> Result<Vec<PushRecord>, SeekwelError> {
+        Connection::get()?.query_all(
+            r#"
+            SELECT
+                p.id,
+                d.device_token,
+                p.apns_id,
+                p.title,
+                p.body,
+                p.payload,
+                p.interruption_level,
+                p.sent_at
+            FROM pushes p
+            JOIN devices d ON p.device_id = d.id
+            WHERE d.installation_id = ?1
+            ORDER BY p.sent_at DESC
+            "#,
+            params![installation_id],
+            |row| {
+                Ok(PushRecord {
+                    id: row.get(0)?,
+                    device_token: row.get(1)?,
+                    apns_id: row.get(2)?,
+                    title: row.get(3)?,
+                    body: row.get(4)?,
+                    payload: row.get(5)?,
+                    interruption_level: row.get(6)?,
+                    sent_at: row.get(7)?,
+                })
+            },
+        )
+    }
+
+    fn push_detail(push_id: i64) -> Result<Option<PushDetailRecord>, SeekwelError> {
+        Connection::get()?.query_optional(
+            r#"
+            SELECT
+                p.id,
+                p.apns_id,
+                p.title,
+                p.body,
+                p.payload,
+                p.interruption_level,
+                p.sent_at,
+                d.device_token,
+                d.device_name,
+                d.device_type,
+                d.environment
+            FROM pushes p
+            JOIN devices d ON p.device_id = d.id
+            WHERE p.id = ?1
+            "#,
+            params![push_id],
+            |row| {
+                Ok(PushDetailRecord {
+                    id: row.get(0)?,
+                    apns_id: row.get(1)?,
+                    title: row.get(2)?,
+                    body: row.get(3)?,
+                    payload: row.get(4)?,
+                    interruption_level: row.get(5)?,
+                    sent_at: row.get(6)?,
+                    device_token: row.get(7)?,
+                    device_name: row.get(8)?,
+                    device_type: row.get(9)?,
+                    environment: row.get(10)?,
+                })
+            },
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +493,18 @@ struct ErrorResponse {
     error: String,
 }
 
+impl ErrorResponse {
+    fn with_status(status: StatusCode, error: impl Into<String>) -> (StatusCode, Json<Self>) {
+        (
+            status,
+            Json(Self {
+                success: false,
+                error: error.into(),
+            }),
+        )
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct StatsResponse {
     total_devices: i64,
@@ -140,7 +513,7 @@ struct StatsResponse {
     total_pushes: i64,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 struct PushRecord {
     id: i64,
     device_token: String,
@@ -162,7 +535,7 @@ struct PushesQuery {
     installation_id: String,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 struct PushDetailRecord {
     id: i64,
     apns_id: Option<String>,
@@ -178,7 +551,7 @@ struct PushDetailRecord {
 }
 
 async fn register_device(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
     tracing::info!(
@@ -189,32 +562,8 @@ async fn register_device(
         "Registering device"
     );
 
-    let result = sqlx::query(
-        r#"
-        INSERT INTO devices (device_token, installation_id, environment, device_name, device_type, os_version, app_version, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(device_token) DO UPDATE SET
-            installation_id = excluded.installation_id,
-            environment = excluded.environment,
-            device_name = excluded.device_name,
-            device_type = excluded.device_type,
-            os_version = excluded.os_version,
-            app_version = excluded.app_version,
-            updated_at = CURRENT_TIMESTAMP
-        "#,
-    )
-    .bind(&req.device_token)
-    .bind(&req.installation_id)
-    .bind(req.environment.as_str())
-    .bind(&req.device_name)
-    .bind(&req.device_type)
-    .bind(&req.os_version)
-    .bind(&req.app_version)
-    .execute(&state.db)
-    .await;
-
-    match result {
-        Ok(_) => {
+    match Database::upsert_device(&req) {
+        Ok(()) => {
             tracing::info!(device_token = %req.device_token, "Device registered");
             Ok(Json(RegisterResponse {
                 success: true,
@@ -223,12 +572,9 @@ async fn register_device(
         }
         Err(e) => {
             tracing::error!(device_token = %req.device_token, error = %e, "Failed to register device");
-            Err((
+            Err(ErrorResponse::with_status(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    success: false,
-                    error: format!("Failed to register device: {}", e),
-                }),
+                format!("Failed to register device: {e}"),
             ))
         }
     }
@@ -245,18 +591,16 @@ async fn send_notification(
         .map(|s| s.contains("application/json"))
         .unwrap_or(false);
 
-    tracing::info!(is_json = is_json, body_len = body.len(), "Received send request");
+    tracing::info!(
+        is_json = is_json,
+        body_len = body.len(),
+        "Received send request"
+    );
 
     let req: SendRequest = if is_json {
         serde_json::from_slice(&body).map_err(|e| {
             tracing::warn!(error = %e, "Invalid JSON in send request");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    success: false,
-                    error: format!("Invalid JSON: {}", e),
-                }),
-            )
+            ErrorResponse::with_status(StatusCode::BAD_REQUEST, format!("Invalid JSON: {e}"))
         })?
     } else {
         let body_text = String::from_utf8_lossy(&body).to_string();
@@ -295,32 +639,21 @@ async fn send_notification(
         "Parsed send request"
     );
 
-    // Fetch all devices
-    let devices: Vec<(String, String)> =
-        sqlx::query_as("SELECT device_token, environment FROM devices")
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Database error fetching devices");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        success: false,
-                        error: format!("Database error: {}", e),
-                    }),
-                )
-            })?;
+    let devices = Database::delivery_targets().map_err(|e| {
+        tracing::error!(error = %e, "Database error fetching devices");
+        ErrorResponse::with_status(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {e}"),
+        )
+    })?;
 
     tracing::info!(device_count = devices.len(), "Found devices to notify");
 
     if devices.is_empty() {
         tracing::warn!("No devices registered, nothing to send");
-        return Err((
+        return Err(ErrorResponse::with_status(
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                success: false,
-                error: "No devices registered".to_string(),
-            }),
+            "No devices registered",
         ));
     }
 
@@ -331,13 +664,13 @@ async fn send_notification(
     let mut sent = 0;
     let mut failed = 0;
 
-    for (device_token, env_str) in devices {
-        let environment = match Environment::try_from(env_str.as_str()) {
+    for device in devices {
+        let environment = match Environment::try_from(device.environment.as_str()) {
             Ok(env) => env,
             Err(_) => {
-                tracing::error!(device_token = %device_token, env = %env_str, "Invalid environment in database");
+                tracing::error!(device_token = %device.device_token, env = %device.environment, "Invalid environment in database");
                 results.push(DeviceSendResult {
-                    device_token,
+                    device_token: device.device_token,
                     success: false,
                     apns_id: None,
                     error: Some("Invalid environment in database".to_string()),
@@ -347,32 +680,23 @@ async fn send_notification(
             }
         };
 
-        tracing::debug!(device_token = %device_token, environment = %env_str, "Sending to device");
+        tracing::debug!(device_token = %device.device_token, environment = %device.environment, "Sending to device");
 
         match apns_clients
-            .send_notification(&device_token, &req, environment)
+            .send_notification(&device.device_token, &req, environment)
             .await
         {
             Ok(apns_id) => {
-                tracing::info!(device_token = %device_token, apns_id = %apns_id, "Push sent");
-                // Record the push
-                let _ = sqlx::query(
-                    r#"
-                    INSERT INTO pushes (device_token, apns_id, title, body, payload, interruption_level)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    "#,
-                )
-                .bind(&device_token)
-                .bind(&apns_id)
-                .bind(&req.title)
-                .bind(&req.body)
-                .bind(&payload_json)
-                .bind(&req.interruption_level)
-                .execute(&state.db)
-                .await;
+                tracing::info!(device_token = %device.device_token, apns_id = %apns_id, "Push sent");
+                let record_result =
+                    Database::record_push(device.id, &apns_id, &req, payload_json.as_deref());
+
+                if let Err(e) = record_result {
+                    tracing::error!(device_token = %device.device_token, apns_id = %apns_id, error = %e, "Failed to record push");
+                }
 
                 results.push(DeviceSendResult {
-                    device_token,
+                    device_token: device.device_token,
                     success: true,
                     apns_id: Some(apns_id),
                     error: None,
@@ -380,9 +704,9 @@ async fn send_notification(
                 sent += 1;
             }
             Err(e) => {
-                tracing::error!(device_token = %device_token, error = %e, "Push failed");
+                tracing::error!(device_token = %device.device_token, error = %e, "Push failed");
                 results.push(DeviceSendResult {
-                    device_token,
+                    device_token: device.device_token,
                     success: false,
                     apns_id: None,
                     error: Some(e.to_string()),
@@ -403,72 +727,27 @@ async fn send_notification(
 }
 
 async fn get_stats(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
 ) -> Result<Json<StatsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let total_devices: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM devices")
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    success: false,
-                    error: format!("Database error: {}", e),
-                }),
-            )
-        })?;
-
-    let sandbox_devices: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM devices WHERE environment = 'sandbox'")
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or((0,));
-
-    let production_devices: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM devices WHERE environment = 'production'")
-            .fetch_one(&state.db)
-            .await
-            .unwrap_or((0,));
-
-    let total_pushes: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM pushes")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or((0,));
-
-    Ok(Json(StatsResponse {
-        total_devices: total_devices.0,
-        sandbox_devices: sandbox_devices.0,
-        production_devices: production_devices.0,
-        total_pushes: total_pushes.0,
-    }))
+    Database::stats().map(Json).map_err(|e| {
+        ErrorResponse::with_status(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {e}"),
+        )
+    })
 }
 
 async fn get_pushes(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Query(query): Query<PushesQuery>,
 ) -> Result<Json<PushesResponse>, (StatusCode, Json<ErrorResponse>)> {
     tracing::debug!(installation_id = %query.installation_id, "Fetching pushes");
 
-    let pushes: Vec<PushRecord> = sqlx::query_as(
-        r#"
-        SELECT p.id, p.device_token, p.apns_id, p.title, p.body, p.payload, p.interruption_level, p.sent_at
-        FROM pushes p
-        JOIN devices d ON p.device_token = d.device_token
-        WHERE d.installation_id = ?
-        ORDER BY p.sent_at DESC
-        "#,
-    )
-    .bind(&query.installation_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
+    let pushes = Database::pushes_for_installation(&query.installation_id).map_err(|e| {
         tracing::error!(error = %e, "Database error fetching pushes");
-        (
+        ErrorResponse::with_status(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                success: false,
-                error: format!("Database error: {}", e),
-            }),
+            format!("Database error: {e}"),
         )
     })?;
 
@@ -478,32 +757,16 @@ async fn get_pushes(
 }
 
 async fn get_push_detail(
-    State(state): State<AppState>,
-    axum::extract::Path(push_id): axum::extract::Path<i64>,
+    State(_state): State<AppState>,
+    Path(push_id): Path<i64>,
 ) -> Result<Json<PushDetailRecord>, (StatusCode, Json<ErrorResponse>)> {
     tracing::debug!(push_id = push_id, "Fetching push detail");
 
-    let push: Option<PushDetailRecord> = sqlx::query_as(
-        r#"
-        SELECT
-            p.id, p.apns_id, p.title, p.body, p.payload, p.interruption_level, p.sent_at, p.device_token,
-            d.device_name, d.device_type, d.environment
-        FROM pushes p
-        LEFT JOIN devices d ON p.device_token = d.device_token
-        WHERE p.id = ?
-        "#,
-    )
-    .bind(push_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
+    let push = Database::push_detail(push_id).map_err(|e| {
         tracing::error!(push_id = push_id, error = %e, "Database error fetching push detail");
-        (
+        ErrorResponse::with_status(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                success: false,
-                error: format!("Database error: {}", e),
-            }),
+            format!("Database error: {e}"),
         )
     })?;
 
@@ -511,62 +774,12 @@ async fn get_push_detail(
         Some(p) => Ok(Json(p)),
         None => {
             tracing::warn!(push_id = push_id, "Push not found");
-            Err((
+            Err(ErrorResponse::with_status(
                 StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    success: false,
-                    error: "Push not found".to_string(),
-                }),
+                "Push not found",
             ))
         }
     }
-}
-
-async fn init_db(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS devices (
-            device_token TEXT PRIMARY KEY,
-            installation_id TEXT,
-            environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
-            device_name TEXT,
-            device_type TEXT,
-            os_version TEXT,
-            app_version TEXT,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    // Add installation_id column if it doesn't exist (migration for existing DBs)
-    let _ = sqlx::query("ALTER TABLE devices ADD COLUMN installation_id TEXT")
-        .execute(pool)
-        .await;
-
-    let _ = sqlx::query("ALTER TABLE pushes ADD COLUMN interruption_level TEXT")
-        .execute(pool)
-        .await;
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS pushes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_token TEXT NOT NULL,
-            apns_id TEXT,
-            title TEXT,
-            body TEXT,
-            payload TEXT,
-            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
 }
 
 #[tokio::main]
@@ -580,19 +793,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data.db".to_string());
     tracing::info!(database_url = %database_url, "Connecting to database");
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await?;
-
-    init_db(&pool).await?;
+    Database::initialize(&database_url)?;
     tracing::info!("Database initialized");
 
     let apns_clients = ApnsClients::new()?;
     tracing::info!("APNs clients initialized");
 
     let state = AppState {
-        db: pool,
         apns: Arc::new(RwLock::new(apns_clients)),
     };
 
@@ -616,6 +823,111 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_database_location_from_url() {
+        assert_eq!(
+            Database::location_from_url("sqlite:data.db"),
+            DatabaseLocation::File("data.db".to_string())
+        );
+        assert_eq!(
+            Database::location_from_url("sqlite:/app/data/data.db?mode=rwc"),
+            DatabaseLocation::File("/app/data/data.db".to_string())
+        );
+        assert_eq!(
+            Database::location_from_url("sqlite:///app/data/data.db?mode=rwc"),
+            DatabaseLocation::File("/app/data/data.db".to_string())
+        );
+        assert_eq!(
+            Database::location_from_url("sqlite::memory:"),
+            DatabaseLocation::Memory
+        );
+        assert_eq!(
+            Database::location_from_url("/tmp/psh.db"),
+            DatabaseLocation::File("/tmp/psh.db".to_string())
+        );
+    }
+
+    #[test]
+    fn test_migrates_legacy_devices_and_recreates_pushes() -> Result<(), SeekwelError> {
+        match Connection::memory() {
+            Ok(()) | Err(SeekwelError::AlreadyInitialized) => {}
+            Err(error) => return Err(error),
+        }
+
+        let conn = Connection::get()?;
+        conn.execute("DROP TABLE IF EXISTS pushes", ())?;
+        conn.execute("DROP TABLE IF EXISTS devices", ())?;
+        conn.execute("DROP TABLE IF EXISTS devices_old", ())?;
+        conn.execute(
+            r#"
+            CREATE TABLE devices (
+                device_token TEXT PRIMARY KEY,
+                installation_id TEXT,
+                environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
+                device_name TEXT,
+                device_type TEXT,
+                os_version TEXT,
+                app_version TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+            (),
+        )?;
+        conn.execute(
+            r#"
+            INSERT INTO devices (
+                device_token,
+                installation_id,
+                environment,
+                device_name,
+                device_type,
+                os_version,
+                app_version
+            ) VALUES ('token-1', 'install-1', 'sandbox', 'Phone', 'iPhone', 'iOS', '1.0')
+            "#,
+            (),
+        )?;
+        conn.execute(
+            r#"
+            CREATE TABLE pushes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_token TEXT NOT NULL,
+                apns_id TEXT,
+                title TEXT,
+                body TEXT,
+                payload TEXT,
+                sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+            (),
+        )?;
+        conn.execute(
+            "INSERT INTO pushes (device_token, title) VALUES ('token-1', 'old push')",
+            (),
+        )?;
+
+        Database::migrate_devices(&conn)?;
+        Database::migrate_pushes(&conn)?;
+        Database::create_schema(&conn)?;
+
+        assert!(Database::column_exists(&conn, "devices", "id")?);
+        assert!(Database::column_exists(&conn, "pushes", "device_id")?);
+
+        let token: String = conn.query_row(
+            "SELECT device_token FROM devices WHERE installation_id = 'install-1'",
+            (),
+            |row| row.get(0),
+        )?;
+        assert_eq!(token, "token-1");
+
+        let push_count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM pushes", (), |row| row.get(0))?;
+        assert_eq!(push_count, 0);
+
+        Ok(())
+    }
 
     #[test]
     fn test_environment_from_str() {
@@ -689,10 +1001,7 @@ mod tests {
             "relevance_score": 0.75
         }"#;
         let req: SendRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            req.interruption_level,
-            Some("time-sensitive".to_string())
-        );
+        assert_eq!(req.interruption_level, Some("time-sensitive".to_string()));
         assert!((req.relevance_score.unwrap() - 0.75).abs() < f64::EPSILON);
     }
 

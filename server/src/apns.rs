@@ -135,8 +135,16 @@ fn build_custom_aps(req: &SendRequest) -> CustomAps {
         alert: build_alert(req),
         badge: req.badge,
         sound: req.sound.as_ref().map(build_sound),
-        content_available: if req.content_available == Some(true) { Some(1) } else { None },
-        mutable_content: if req.mutable_content == Some(true) { Some(1) } else { None },
+        content_available: if req.content_available == Some(true) {
+            Some(1)
+        } else {
+            None
+        },
+        mutable_content: if req.mutable_content == Some(true) {
+            Some(1)
+        } else {
+            None
+        },
         category: req.category.clone(),
         interruption_level: req.interruption_level.clone(),
         relevance_score: req.relevance_score,

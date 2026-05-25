@@ -23,7 +23,13 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if filteredPushes.isEmpty && searchText.isEmpty {
+                if filteredPushes.isEmpty && searchText.isEmpty, let errorMessage {
+                    ContentUnavailableView(
+                        "Failed to Load",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(errorMessage)
+                    )
+                } else if filteredPushes.isEmpty && searchText.isEmpty {
                     ContentUnavailableView(
                         "No Notifications",
                         systemImage: "bell.slash",
@@ -61,6 +67,7 @@ struct ContentView: View {
     private func fetchPushes() async {
         do {
             pushes = try await APIClient.shared.fetchPushes()
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }

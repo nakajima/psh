@@ -44,6 +44,7 @@ struct APIClientTests {
     @Test func testRegisterRequestEncoding() async throws {
         let request = RegisterRequest(
             deviceToken: "abc123",
+            installationId: "install-123",
             environment: "sandbox",
             deviceName: "Test iPhone",
             deviceType: "iPhone",
@@ -56,6 +57,7 @@ struct APIClientTests {
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
         #expect(json["device_token"] as? String == "abc123")
+        #expect(json["installation_id"] as? String == "install-123")
         #expect(json["environment"] as? String == "sandbox")
         #expect(json["device_name"] as? String == "Test iPhone")
         #expect(json["device_type"] as? String == "iPhone")

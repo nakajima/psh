@@ -1,13 +1,13 @@
 [package]
 name = "server"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 
 [dependencies]
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 a2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+seekwel = { version = "0.1.26", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tower-http = { version = "0.5", features = ["trace"] }
